@@ -101,12 +101,33 @@ class DiseaseDetector:
         other = (codes.str.contains(self.OTHER_VIRAL_CODES) | text.str.contains(self.OTHER_VIRAL_TEXT, regex=True, na=False)) & ~covid & ~flu
         return {"covid19": int(covid.sum()), "influenza": int(flu.sum()), "other_viral": int(other.sum())}
 
+    #: Minimum disease record count to consider a target "present".
+    #: Datasets like MIMIC-IV 2.2 contain only 2 SARS (B34.2) rows — which are
+    #: not clinically meaningful as a COVID surveillance target — so we require
+    #: at least this many records before promoting that disease to the analysis.
+    MIN_SIGNAL_COUNT: int = 10
+
     def select(self, counts: dict[str, int]) -> list[DiseaseSignal]:
         selected: list[DiseaseSignal] = []
-        if counts.get("covid19", 0) > 0:
+        covid_n = counts.get("covid19", 0)
+        if covid_n >= self.MIN_SIGNAL_COUNT:
             label, codes, reason = self.SIGNALS["covid19"]
-            selected.append(DiseaseSignal("covid19", label, codes, counts["covid19"], reason))
+            selected.append(DiseaseSignal("covid19", label, codes, covid_n, reason))
             return selected
+        if counts.get("influenza", 0) > 0:
+            label, codes, reason = self.SIGNALS["influenza"]
+            selected.append(DiseaseSignal("influenza", label, codes, counts["influenza"], reason, [1, 2, 12], [11, 12, 1, 2, 3]))
+        if counts.get("other_viral", 0) > 0:
+            label, codes, reason = self.SIGNALS["other_viral"]
+            if selected:
+                reason = "Influenza and other viral records both present; run parallel analyses"
+            selected.append(DiseaseSignal("other_viral", label, codes, counts["other_viral"], reason))
+        if not selected:
+            label, codes, _ = self.SIGNALS["influenza"]
+            # Carry through near-zero COVID count in reason so caller can see it
+            covid_note = f" (detected {covid_n} COVID records, below min_signal_count={self.MIN_SIGNAL_COUNT})" if covid_n else ""
+            selected.append(DiseaseSignal("influenza", label, codes, 0, f"No sufficient COVID/flu/other viral records detected{covid_note}; influenza fallback config only", [1, 2, 12], [11, 12, 1, 2, 3]))
+        return selected
         if counts.get("influenza", 0) > 0:
             label, codes, reason = self.SIGNALS["influenza"]
             selected.append(DiseaseSignal("influenza", label, codes, counts["influenza"], reason, [1, 2, 12], [11, 12, 1, 2, 3]))
@@ -177,15 +198,28 @@ def build_adaptive_config(
     dates = pd.to_datetime(df["admission_date"], errors="coerce").dropna()
     min_year = int(dates.dt.year.min()) if len(dates) else 2016
     max_year = int(dates.dt.year.max()) if len(dates) else min_year + 2
-    baseline_end_year = min(max_year, min_year + 1)
+    span = max_year - min_year
+    if span >= 2:
+        # Normal case: first 2 years as baseline, rest as monitoring.
+        baseline_end_year = min_year + 1
+        monitoring_start_year = min_year + 2
+    elif span == 1:
+        # 2-year dataset: use first year as baseline, second as monitoring.
+        baseline_end_year = min_year
+        monitoring_start_year = max_year
+    else:
+        # Single-year dataset (e.g. CDSL 2020-only): use first half of year
+        # as baseline so the second half can be monitored.
+        baseline_end_year = min_year
+        monitoring_start_year = min_year
     return EpidemicConfig(
         target_disease=signal.label,
         reference_icd10_codes=signal.reference_codes,
         reference_years=list(range(min_year, min(max_year, min_year + 4) + 1)),
         reference_months=signal.reference_months,
         baseline_start=f"{min_year}-01-01",
-        baseline_end=f"{baseline_end_year}-12-31",
-        monitoring_start=f"{min(baseline_end_year + 1, max_year)}-01-01",
+        baseline_end=f"{baseline_end_year}-06-30" if span == 0 else f"{baseline_end_year}-12-31",
+        monitoring_start=f"{monitoring_start_year}-07-01" if span == 0 else f"{monitoring_start_year}-01-01",
         comorbidity_groups=dict(ADAPTIVE_COMORBIDITY_GROUPS),
         target_group=target_group,
         lab_panel=list(feature_plan.lab_panel),

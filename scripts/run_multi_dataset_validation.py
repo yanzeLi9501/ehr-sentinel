@@ -397,6 +397,19 @@ def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bo
     for signal in signals:
         config = build_adaptive_config(df, signal, feature_plan, target_group=spec.target_group)
         result = run_surveillance_pipeline(df, config, train_xgb=train_xgb)
+        # Peak signal diagnostics: compare max S vs alert threshold to explain
+        # why alerts do or don't fire without exposing patient-level data.
+        timeline = result.lgdi_result.timeline
+        peak_s = None
+        alert_threshold_value = None
+        if not timeline.empty and "S" in timeline.columns and "group" in timeline.columns:
+            from ehr_sentinel.alerts.engine import ConsensusRule as _CR
+            _cr = _CR(k=config.consensus_k, threshold_sd=config.alert_threshold_sd)
+            _cr.fit(timeline, group_col="group", value_col="S")
+            peak_s = round(float(timeline["S"].max()), 4)
+            if _cr.baseline_stats:
+                thresholds = [mu + config.alert_threshold_sd * sd for mu, sd in _cr.baseline_stats.values()]
+                alert_threshold_value = round(float(max(thresholds)), 4)
         out.append({
             **common,
             "analysis": f"{spec.name}:{signal.name}",
@@ -407,6 +420,8 @@ def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bo
             "rdi_weeks": int(len(result.rdi_timeline)),
             "lgdi_weeks": int(len(result.lgdi_result.lgdi)),
             "sustained_alerts": int(result.alerts["alert_sustained"].sum()) if "alert_sustained" in result.alerts else 0,
+            "peak_lgdi_signal_S": peak_s,
+            "alert_threshold_S": alert_threshold_value,
             "onset_week": str(result.warning.onset_week) if result.warning.onset_week is not None else None,
             "peak_week_estimate": str(result.warning.peak_week_estimate) if result.warning.peak_week_estimate is not None else None,
             "model_metrics": result.model_metrics,

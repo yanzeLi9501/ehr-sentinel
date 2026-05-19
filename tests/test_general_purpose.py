@@ -92,3 +92,38 @@ def test_adaptive_disease_selection_and_config():
     assert cfg.target_disease == "Influenza"
     assert cfg.lab_panel == ["WBC"]
     assert "250" in cfg.comorbidity_groups["Diabetes"]
+
+
+def test_disease_detector_min_signal_count_threshold():
+    """MIMIC-IV 2.2 has only 2 B34.2 (SARS) records, which should fall through
+    to influenza rather than triggering a near-empty COVID-19 analysis."""
+    detector = DiseaseDetector()
+    # Below MIN_SIGNAL_COUNT → should fall through to influenza
+    sigs = detector.select({"covid19": 2, "influenza": 1859, "other_viral": 300})
+    assert sigs[0].name == "influenza", "Sparse COVID should not override flu"
+    assert sigs[0].count == 1859
+    assert len(sigs) == 2  # flu + other_viral parallel
+
+    # At or above MIN_SIGNAL_COUNT → COVID should be selected
+    sigs_covid = detector.select({"covid19": 82, "influenza": 5, "other_viral": 0})
+    assert sigs_covid[0].name == "covid19"
+    assert len(sigs_covid) == 1  # COVID only
+
+
+def test_build_adaptive_config_single_year_span():
+    """Datasets with dates all in one calendar year (e.g. CDSL shifted to 2100)
+    should produce a valid baseline/monitoring split using half-year boundary."""
+    df = pd.DataFrame({
+        "mrn": [str(i) for i in range(40)],
+        "admission_date": pd.date_range("2100-01-01", periods=40, freq="W"),
+        "discharge_date": pd.date_range("2100-01-04", periods=40, freq="W"),
+        "icd10": ["U071"] * 40,
+    })
+    from ehr_sentinel.features.adaptive import DiseaseSignal, FeaturePlan
+    signal = DiseaseSignal("covid19", "COVID-19", ["U07.1"], 40)
+    plan = FeaturePlan(lab_panel=[], min_visit_order=1, gap_cap_days=30, los_cap_days=60,
+                       enhanced_features=False, reason="test")
+    cfg = build_adaptive_config(df, signal, plan)
+    # Baseline end must be strictly before monitoring start to avoid empty LGDI
+    import pandas as _pd
+    assert _pd.Timestamp(cfg.baseline_end) < _pd.Timestamp(cfg.monitoring_start)

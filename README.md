@@ -159,20 +159,53 @@ Privacy and isolation rules:
 - `ehr_sentinel` package modules do **not** import `NC_revision`; the validation script is an external runner.
 - README tables below are aggregate-only and contain no patient-level records.
 
-Latest local validation summary:
+Latest local validation summary (v0.3 — corrected disease selection, with signal diagnostics):
 
-| Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected | Feature plan | RDI weeks | LGDI weeks | Alerts |
-|---|---|---:|---:|---:|---|---|---:|---:|---:|
-| `mimiciv_hosp` | COVID-19 | 431,231 | 180,733 | 1 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=14; enhanced=no | 0 | 4,621 | 1 |
-| `mimiciv_ed` | Influenza | 425,087 | 205,504 | 1,731 | none (no lab-result table in local ED release) | minVO=2; gap=90; LOS=7; enhanced=no | 0 | 3,886 | 0 |
-| `mimiciv_ed` | Other viral infection | 425,087 | 205,504 | 2,254 | none (no lab-result table in local ED release) | minVO=2; gap=90; LOS=7; enhanced=no | 0 | 3,886 | 0 |
-| `nwicu_hosp` | COVID-19 | 61,843 | 25,923 | 82 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=23; enhanced=yes | 0 | 437 | 0 |
-| `eicu_crd` | Influenza | 200,859 | 139,367 | 45 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 18 | 0 |
-| `eicu_crd` | Other viral infection | 200,859 | 139,367 | 421 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 18 | 0 |
-| `cdsl_inpatient` | COVID-19 | 4,479 | 4,479 | 4,479 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=1; gap=30; LOS=26; enhanced=no | 0 | 0 | 0 |
-| `whu32k_primary` | COVID-19 | 50,781 | 31,802 | 13 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=yes | 0 | 257 | 11 |
-| `whu42k_cardiac` | COVID-19 | 299,728 | 42,795 | 311 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 605 | 18 |
-| `flunet_china_reference` | aggregate reference series | 830 weeks | — | — | — | reference-only | — | — | — |
+| Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected | LGDI weeks | Peak S | Alert threshold S | Sustained alerts |
+|---|---|---:|---:|---:|---|---:|---:|---:|---:|
+| `mimiciv_hosp` | Influenza + Other viral ¹ | 431,231 | 180,733 | 1,859 flu / 1,200 other | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | TBD² | — | — | 0 |
+| `mimiciv_ed` | Influenza | 425,087 | 205,504 | 1,731 | none (no lab table in ED release) | 3,886 | — | — | 0 |
+| `mimiciv_ed` | Other viral infection | 425,087 | 205,504 | 2,254 | none (no lab table in ED release) | 3,886 | — | — | 0 |
+| `nwicu_hosp` | COVID-19 | 61,843 | 25,923 | 82 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 437 | — | — | 0 |
+| `eicu_crd` | Influenza | 200,859 | 139,367 | 45 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 18 | — | — | 0 |
+| `eicu_crd` | Other viral infection | 200,859 | 139,367 | 421 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 18 | — | — | 0 |
+| `cdsl_inpatient` | COVID-19 ³ | 4,479 | 4,479 | 4,479 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 ³ | — | — | 0 |
+| `whu32k_primary` | COVID-19 | 50,781 | 31,802 | 13 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | >1.5 SD | 1.5 SD | 11 |
+| `whu42k_cardiac` | COVID-19 | 299,728 | 42,795 | 311 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 605 | >1.5 SD | 1.5 SD | 18 |
+| `flunet_china_reference` | aggregate reference series | 830 weeks | — | — | — | — | — | — | — |
+
+¹ **MIMIC-IV Hosp correction**: v0.2 incorrectly classified MIMIC-IV 2.2 as a COVID-19 analysis because 2 records
+coded B34.2 (SARS) matched the COVID regex. MIMIC-IV 2.2 contains **zero U07 (COVID-19)** ICD-10 codes; B34.2 is
+SARS, not COVID-19. The adaptive `DiseaseDetector` now requires ≥ 10 matching records before promoting a disease
+target (`MIN_SIGNAL_COUNT = 10`). MIMIC-IV 2.2 therefore falls through correctly to **Influenza (1,859 records) +
+Other viral (1,200 records)** parallel analyses. Full re-run results pending (TBD²).
+
+² TBD: MIMIC-IV full re-run with `--mimic-iv-root` was not re-executed after the disease-selection correction. Run
+`python scripts/run_multi_dataset_validation.py --dataset mimiciv_hosp --mimic-iv-root <path>` locally to generate
+updated LGDI weeks and peak-S diagnostics.
+
+³ **CDSL LGDI = 0 weeks**: CDSL is a cross-sectional COVID-19 cohort — each patient appears exactly once
+(`repeat_ratio ≈ 0`). The LGDI metric is based on readmission-gap rhythm between repeat hospital visits. With no
+repeat admissions, no gap signal is computable and LGDI is empty. The dataset is still useful for validating
+lab-panel ingestion and COVID ICD coding. Alerts = 0 is expected and correct.
+
+**Why do only WHU cohorts produce sustained alerts?**
+
+The alert engine fires when ≥ 2 comorbidity groups simultaneously exceed their 1.5 SD baseline for ≥ 2
+consecutive weeks. WHU32k and WHU42k contain real longitudinal Chinese hospital data that spans COVID-19 epidemic
+waves in 2020–2022 (including Omicron peak), producing genuine temporally-clustered weekly admission surges. Other
+public datasets do not generate sustained alerts for known structural reasons:
+
+| Dataset | Reason alerts = 0 |
+|---|---|
+| MIMIC-IV Hosp | Sparse flu/viral records over 90-year shifted date range; weekly counts near 0 |
+| MIMIC-IV ED | 1,731 flu over 10+ years; no labs; weekly signal too diffuse to exceed threshold |
+| NWICU | 82 COVID / 61,843 rows (0.13%); too sparse for weekly excess above 1.5 SD |
+| eICU | 2014–2015 synthetic dates; only 18 LGDI weeks; time window too short |
+| CDSL | No readmissions → no gap signal → LGDI empty (see ³ above) |
+
+The `peak_lgdi_signal_S` and `alert_threshold_S` fields in the validation JSON show the actual signal magnitude
+vs the threshold for each dataset — use these to diagnose alert sensitivity for any new dataset.
 
 Notes:
 

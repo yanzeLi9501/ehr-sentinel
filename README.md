@@ -2,7 +2,7 @@
 
 **General-purpose EHR epidemic surveillance toolkit** — a clean, MIT-licensed Python package that
 encapsulates a retrospective XGBoost rhythm-prediction pipeline together with two surveillance
-metrics — **Pearson profile correlation (RDI)** and the **LOS–Gap Deviation Index (LGDI)** — into a
+metrics — **Pearson profile correlation** and the **LOS–Gap Deviation Index (LGDI)** — into a
 disease-agnostic early-warning system for epidemic monitoring from electronic health records.
 
 > COVID-19 is just one *candidate* epidemic. You configure the target disease, the reference

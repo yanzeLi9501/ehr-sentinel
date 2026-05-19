@@ -7,6 +7,15 @@ from ehr_sentinel.features.temporal import (
     compute_prior_stats,
 )
 from ehr_sentinel.features.builder import FeatureBuilder
+from ehr_sentinel.features.adaptive import (
+    AutoFeatureEngineer,
+    DiseaseDetector,
+    DiseaseSignal,
+    FeaturePlan,
+    LabPanelAdapter,
+    LabPanelSpec,
+    build_adaptive_config,
+)
 
 __all__ = [
     "ComorbidityGrouper",
@@ -15,4 +24,11 @@ __all__ = [
     "compute_seasonal_features",
     "compute_prior_stats",
     "FeatureBuilder",
+    "AutoFeatureEngineer",
+    "DiseaseDetector",
+    "DiseaseSignal",
+    "FeaturePlan",
+    "LabPanelAdapter",
+    "LabPanelSpec",
+    "build_adaptive_config",
 ]

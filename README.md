@@ -16,6 +16,7 @@ disease-agnostic early-warning system for epidemic monitoring from electronic he
 - **Multi-source ingestion** — CSV (auto-configuring column detection) and FHIR R4 Bundles
   (Patient / Encounter / Condition / Observation).
 - **Terminology mapping** — configurable ICD-10 ↔ SNOMED ↔ LOINC crosswalks.
+- **Adaptive validation** — per-dataset lab-panel selection, ICD/text disease detection, and feature-plan selection.
 - **Local GPU XGBoost** — automatic CUDA detection with graceful CPU fallback.
 - **Optuna tuning** — TPE search for hyperparameters and PPV-targeted objectives.
 - **Surveillance metrics** — Pearson RDI and LGDI with bootstrap confidence intervals.
@@ -75,15 +76,25 @@ pip install -e ".[lgdi,dev]"
 pytest tests/ -v
 ```
 
-All 32 tests use only synthetic data — no real EHR files needed.
+All 34 tests use only synthetic data — no real EHR files needed.
 
 ## Aggregate-only multi-dataset validation
 
 `scripts/run_multi_dataset_validation.py` validates that the package can read public PhysioNet/FluNet
-tables plus local WHU 32k/42k prepared cohorts without copying source data into the repository. Where
-available, it aggregates admission-level lab panels from source lab tables before running the
-pipeline. It writes only aggregate JSON/Markdown summaries: row counts, patient counts, date ranges,
-detected lab panels, RDI/LGDI week counts, sustained-alert counts, and warning dates.
+tables plus local WHU 32k/42k prepared cohorts without copying source data into the repository. It
+does **not** force one universal laboratory panel onto all centers. Instead, it uses the package
+adaptive helpers to:
+
+- detect available lab tests per dataset and select only usable numeric, non-sparse, non-constant labs;
+- detect epidemic targets from ICD/text evidence with priority: COVID-19 if present; otherwise
+  influenza; if influenza and other viral infections both exist, run both in parallel; if neither
+  exists, run an influenza fallback configuration;
+- choose feature-engineering knobs per dataset (`min_visit_order`, LOS/gap caps, enhanced rolling/EMA
+  features) based on cohort size, repeat-admission structure, and lab availability.
+
+It writes only aggregate JSON/Markdown summaries: row counts, patient counts, date ranges, selected
+lab panels, disease counts, feature-plan metadata, RDI/LGDI week counts, sustained-alert counts, and
+warning dates.
 
 The script expects data outside the package repository:
 
@@ -130,7 +141,7 @@ python scripts/run_multi_dataset_validation.py \
   --dataset mimiciv_hosp \
   --mimic-iv-root "D:\path\to\mimic-iv-2.2\mimic-iv-2.2"
 
-# optional XGBoost training; off by default for reproducible, fast ingestion/metric validation
+# optional XGBoost training/tuning; off by default for reproducible, fast ingestion/metric validation
 python scripts/run_multi_dataset_validation.py --dataset whu32k_primary --train-xgb
 ```
 
@@ -150,26 +161,29 @@ Privacy and isolation rules:
 
 Latest local validation summary:
 
-| Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |
-|---|---:|---:|---:|---|---|---:|---:|---:|---|
-| `mimiciv_hosp` | passed | 431,231 | 180,733 | 2105-10-04 to 2212-04-06 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 2,725 | 0 | full pipeline |
-| `mimiciv_ed` | passed | 425,087 | 205,504 | 2110-01-11 to 2212-04-05 | none; local ED release folder has vitalsign but no lab-result table | 0 | 853 | 0 | full pipeline |
-| `nwicu_hosp` | passed | 61,843 | 25,923 | 2100-01-01 to 2201-07-17 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 431 | 0 | full pipeline |
-| `eicu_crd` | passed | 200,859 | 139,367 | 2012-12-29 to 2015-09-27 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 4 | 0 | full pipeline |
-| `cdsl_inpatient` | passed | 4,479 | 4,479 | 2100-09-16 to 2195-06-21 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 0 | 0 | full pipeline |
-| `whu32k_primary` | passed | 50,781 | 31,802 | 2012-04-16 to 2020-05-24 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | 254 | 10 | full pipeline |
-| `whu42k_cardiac` | passed | 299,728 | 42,795 | 2007-03-06 to 2024-12-05 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 605 | 18 | full pipeline |
-| `flunet_china_reference` | passed | 830 | — | 2008-12-29 to 2024-12-23 | aggregate reference series | — | — | — | reference only |
+| Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected | Feature plan | RDI weeks | LGDI weeks | Alerts |
+|---|---|---:|---:|---:|---|---|---:|---:|---:|
+| `mimiciv_hosp` | COVID-19 | 431,231 | 180,733 | 1 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=14; enhanced=no | 0 | 4,621 | 1 |
+| `mimiciv_ed` | Influenza | 425,087 | 205,504 | 1,731 | none (no lab-result table in local ED release) | minVO=2; gap=90; LOS=7; enhanced=no | 0 | 3,886 | 0 |
+| `mimiciv_ed` | Other viral infection | 425,087 | 205,504 | 2,254 | none (no lab-result table in local ED release) | minVO=2; gap=90; LOS=7; enhanced=no | 0 | 3,886 | 0 |
+| `nwicu_hosp` | COVID-19 | 61,843 | 25,923 | 82 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=23; enhanced=yes | 0 | 437 | 0 |
+| `eicu_crd` | Influenza | 200,859 | 139,367 | 45 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 18 | 0 |
+| `eicu_crd` | Other viral infection | 200,859 | 139,367 | 421 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 18 | 0 |
+| `cdsl_inpatient` | COVID-19 | 4,479 | 4,479 | 4,479 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=1; gap=30; LOS=26; enhanced=no | 0 | 0 | 0 |
+| `whu32k_primary` | COVID-19 | 50,781 | 31,802 | 13 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=yes | 0 | 257 | 11 |
+| `whu42k_cardiac` | COVID-19 | 299,728 | 42,795 | 311 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | minVO=2; gap=90; LOS=25; enhanced=no | 0 | 605 | 18 |
+| `flunet_china_reference` | aggregate reference series | 830 weeks | — | — | — | reference-only | — | — | — |
 
 Notes:
 
 - MIMIC-IV Hosp was validated with a complete external MIMIC-IV 2.2 root supplied via
   `--mimic-iv-root`; the package repository still does not contain or copy `labevents.csv.gz`.
 - MIMIC-IV-ED in this local checkout contains vitalsign/medication tables but no lab-result table for
-  the configured lab panel.
-- NWICU, eICU, CDSL, MIMIC-IV Hosp, and WHU laboratory tables were joined successfully and detected
-  the full configured panel. Pearson RDI may still be empty when the configured reference/target-group
-  weeks do not meet the profile-correlation criteria; LGDI still validates admission rhythm compatibility.
+  an adaptive lab panel.
+- NWICU, eICU, CDSL, MIMIC-IV Hosp, and WHU laboratory tables were joined successfully. The selected
+  lab panel above is the panel that passed per-dataset coverage/variance checks in this local run.
+- Pearson RDI may still be empty when the selected disease/reference window and target-group weeks do
+  not meet profile-correlation criteria; LGDI still validates admission rhythm compatibility.
 - FluNet is an aggregate surveillance reference series rather than patient-level admissions data; the
   validation confirms it can be loaded and summarized without entering the EHR pipeline.
 - WHU runs use local prepared cohorts and publish only aggregate counts/metrics in this README.
@@ -180,7 +194,7 @@ Notes:
 src/ehr_sentinel/
 ├── utils/          # EpidemicConfig (Pydantic v2), GPU detection, validation helpers
 ├── data/           # EHRLoader, synthetic generators, FHIR parser, terminology mapper
-├── features/       # ComorbidityGrouper, temporal/seasonal features, FeatureBuilder
+├── features/       # ComorbidityGrouper, adaptive lab/disease/feature planning, FeatureBuilder
 ├── models/         # XGBTrainer, XGBTuner (Optuna), ModelPersistence
 ├── metrics/        # PearsonProfileCorrelation (RDI), LGDIComputer, AlertEvaluator
 ├── alerts/         # ConsensusRule, SeasonFilter, SustainedRule, EpidemicPredictor

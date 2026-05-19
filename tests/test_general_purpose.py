@@ -1,5 +1,8 @@
 """Verify the package is disease-agnostic by swapping configs."""
+import pandas as pd
+
 from ehr_sentinel import EpidemicConfig, EHRLoader, FeatureBuilder, PearsonProfileCorrelation
+from ehr_sentinel.features.adaptive import AutoFeatureEngineer, DiseaseDetector, LabPanelAdapter, build_adaptive_config
 
 
 def test_different_target_disease(synthetic_admissions, synthetic_config_covid, synthetic_config_flu):
@@ -56,3 +59,36 @@ def test_epidemic_signal_detection(synthetic_admissions_with_signal, synthetic_c
     weekly = p.weekly_correlation(df, ref, bmean, bstd)
     # Some weekly correlation should be non-trivial
     assert weekly["r"].abs().max() > 0.0
+
+
+def test_adaptive_lab_panel_selects_dataset_specific_labs():
+    df = pd.DataFrame({
+        "mrn": ["A", "B", "C", "D"],
+        "admission_date": pd.date_range("2020-01-01", periods=4),
+        "WBC": [5.1, 6.2, 7.3, 8.4],
+        "CRP": [None, None, None, None],
+        "HGB": [130, 131, 129, 132],
+    })
+    spec = LabPanelAdapter(min_coverage=0.5, min_non_null=2).select(df)
+    assert spec.detected == ["WBC", "CRP", "HGB"]
+    assert spec.selected == ["WBC", "HGB"]
+
+
+def test_adaptive_disease_selection_and_config():
+    df = pd.DataFrame({
+        "mrn": ["A", "A", "B", "B"],
+        "admission_date": pd.to_datetime(["2020-01-01", "2020-02-01", "2020-01-15", "2020-03-01"]),
+        "discharge_date": pd.to_datetime(["2020-01-04", "2020-02-03", "2020-01-20", "2020-03-04"]),
+        "icd10": ["J10", "B34", "I10", "J11"],
+        "WBC": [5.0, 6.0, 7.0, 8.0],
+    })
+    detector = DiseaseDetector()
+    counts = detector.detect(df)
+    signals = detector.select(counts)
+    assert [s.name for s in signals] == ["influenza", "other_viral"]
+    labs = LabPanelAdapter(min_non_null=2).select(df)
+    plan = AutoFeatureEngineer().plan(EHRLoader().from_dataframe(df), labs)
+    cfg = build_adaptive_config(df, signals[0], plan)
+    assert cfg.target_disease == "Influenza"
+    assert cfg.lab_panel == ["WBC"]
+    assert "250" in cfg.comorbidity_groups["Diabetes"]

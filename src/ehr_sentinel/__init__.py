@@ -21,6 +21,7 @@ from ehr_sentinel.data.loader import EHRLoader, DataSourceProfile
 from ehr_sentinel.data.terminology import TerminologyMapper
 from ehr_sentinel.features.comorbidity import ComorbidityGrouper
 from ehr_sentinel.features.builder import FeatureBuilder
+from ehr_sentinel.features.adaptive import AutoFeatureEngineer, DiseaseDetector, LabPanelAdapter, build_adaptive_config
 from ehr_sentinel.metrics.pearson import PearsonProfileCorrelation
 from ehr_sentinel.metrics.lgdi import LGDIComputer
 from ehr_sentinel.metrics.evaluation import AlertEvaluator
@@ -68,6 +69,10 @@ __all__ = [
     "FHIRParser",
     "ComorbidityGrouper",
     "FeatureBuilder",
+    "AutoFeatureEngineer",
+    "DiseaseDetector",
+    "LabPanelAdapter",
+    "build_adaptive_config",
     "PearsonProfileCorrelation",
     "LGDIComputer",
     "AlertEvaluator",

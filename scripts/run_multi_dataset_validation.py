@@ -19,6 +19,12 @@ from typing import Callable
 import pandas as pd
 
 from ehr_sentinel import EHRLoader, EpidemicConfig, run_surveillance_pipeline
+from ehr_sentinel.features.adaptive import (
+    AutoFeatureEngineer,
+    DiseaseDetector,
+    LabPanelAdapter,
+    build_adaptive_config,
+)
 
 
 MIMIC_IV_ROOT: Path | None = None
@@ -351,26 +357,7 @@ DATASETS = [
 ]
 
 
-def _config_for(df: pd.DataFrame, target_group: str) -> EpidemicConfig:
-    dates = pd.to_datetime(df["admission_date"], errors="coerce").dropna()
-    min_year = int(dates.dt.year.min()) if len(dates) else 2016
-    max_year = int(dates.dt.year.max()) if len(dates) else min_year + 2
-    baseline_end_year = min(max_year, min_year + 1)
-    return EpidemicConfig(
-        target_disease="Multi-dataset validation",
-        reference_icd10_codes=["U07.1", "U07.2", "J09", "J10", "J11", "J18"],
-        reference_years=list(range(min_year, min(max_year, min_year + 4) + 1)),
-        reference_months=list(range(1, 13)),
-        baseline_start=f"{min_year}-01-01",
-        baseline_end=f"{baseline_end_year}-12-31",
-        monitoring_start=f"{min(baseline_end_year + 1, max_year)}-01-01",
-        target_group=target_group,
-        min_visit_order=1,
-        enhanced_features=False,
-    )
-
-
-def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bool, max_rows: int | None) -> dict:
+def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bool, max_rows: int | None) -> list[dict]:
     t0 = perf_counter()
     raw = spec.loader(root, nc_root)
     assert isinstance(raw, pd.DataFrame)
@@ -384,29 +371,48 @@ def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bo
     df = df.sort_values(["mrn", "admission_date"])
     if max_rows is not None and len(df) > max_rows:
         df = df.head(max_rows).copy()
-    config = _config_for(df, spec.target_group)
-    result = run_surveillance_pipeline(df, config, train_xgb=train_xgb)
     dates = pd.to_datetime(df["admission_date"], errors="coerce")
-    return {
+    lab_spec = LabPanelAdapter().select(df)
+    feature_plan = AutoFeatureEngineer().plan(df, lab_spec)
+    disease_counts = DiseaseDetector().detect(df)
+    signals = DiseaseDetector().select(disease_counts)
+    common = {
         "dataset": spec.name,
         "status": "passed",
-        "mode": "full_pipeline",
-        "train_xgb": bool(train_xgb),
+        "mode": "adaptive_parallel_pipeline",
         "source_rows": source_rows,
         "rows_tested": int(len(df)),
         "patients": int(df["mrn"].nunique()),
         "date_start": str(dates.min().date()) if pd.notna(dates.min()) else None,
         "date_end": str(dates.max().date()) if pd.notna(dates.max()) else None,
-        "labs_detected": [c for c in LAB_COLUMNS if c in df.columns],
+        "labs_detected": lab_spec.detected,
+        "labs_selected": lab_spec.selected,
+        "lab_coverage": {k: round(v, 4) for k, v in lab_spec.coverage.items()},
+        "lab_selection_reason": lab_spec.reason,
         "lab_source_status": lab_source_status,
-        "rdi_weeks": int(len(result.rdi_timeline)),
-        "lgdi_weeks": int(len(result.lgdi_result.lgdi)),
-        "sustained_alerts": int(result.alerts["alert_sustained"].sum()) if "alert_sustained" in result.alerts else 0,
-        "onset_week": str(result.warning.onset_week) if result.warning.onset_week is not None else None,
-        "peak_week_estimate": str(result.warning.peak_week_estimate) if result.warning.peak_week_estimate is not None else None,
-        "model_metrics": result.model_metrics,
-        "elapsed_seconds": round(perf_counter() - t0, 2),
+        "disease_counts": disease_counts,
+        "feature_plan": feature_plan.__dict__,
     }
+    out: list[dict] = []
+    for signal in signals:
+        config = build_adaptive_config(df, signal, feature_plan, target_group=spec.target_group)
+        result = run_surveillance_pipeline(df, config, train_xgb=train_xgb)
+        out.append({
+            **common,
+            "analysis": f"{spec.name}:{signal.name}",
+            "target_disease": signal.label,
+            "target_record_count": signal.count,
+            "target_selection_reason": signal.selection_reason,
+            "train_xgb": bool(train_xgb),
+            "rdi_weeks": int(len(result.rdi_timeline)),
+            "lgdi_weeks": int(len(result.lgdi_result.lgdi)),
+            "sustained_alerts": int(result.alerts["alert_sustained"].sum()) if "alert_sustained" in result.alerts else 0,
+            "onset_week": str(result.warning.onset_week) if result.warning.onset_week is not None else None,
+            "peak_week_estimate": str(result.warning.peak_week_estimate) if result.warning.peak_week_estimate is not None else None,
+            "model_metrics": result.model_metrics,
+            "elapsed_seconds": round(perf_counter() - t0, 2),
+        })
+    return out
 
 
 def _write_markdown(results: list[dict], path: Path) -> None:
@@ -415,17 +421,18 @@ def _write_markdown(results: list[dict], path: Path) -> None:
         "",
         "Aggregate-only validation output. No patient-level rows or source data are included.",
         "",
-        "| Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |",
-        "|---|---:|---:|---:|---|---|---:|---:|---:|---|",
+        "| Dataset | Analysis | Status | Rows tested | Patients | Date range | Labs selected | Disease records | RDI weeks | LGDI weeks | Sustained alerts | Mode |",
+        "|---|---|---:|---:|---:|---|---|---:|---:|---:|---:|---|",
     ]
     for r in results:
         date_range = f"{r.get('date_start')} to {r.get('date_end')}"
-        labs = r.get("labs_detected", "")
+        labs = r.get("labs_selected", r.get("labs_detected", ""))
         if isinstance(labs, list):
             labs = ", ".join(labs) if labs else r.get("lab_source_status", "none")
         lines.append(
-            f"| {r['dataset']} | {r['status']} | {r.get('rows_tested', r.get('source_rows', ''))} | "
-            f"{r.get('patients', '')} | {date_range} | {labs} | {r.get('rdi_weeks', '')} | "
+            f"| {r['dataset']} | {r.get('target_disease', r.get('analysis', ''))} | {r['status']} | "
+            f"{r.get('rows_tested', r.get('source_rows', ''))} | {r.get('patients', '')} | {date_range} | "
+            f"{labs} | {r.get('target_record_count', '')} | {r.get('rdi_weeks', '')} | "
             f"{r.get('lgdi_weeks', '')} | {r.get('sustained_alerts', '')} | {r.get('mode', '')} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -467,8 +474,13 @@ def main() -> int:
                 out = _run_ehr_dataset(spec, args.data_root, args.nc_root, args.train_xgb, args.max_rows)
         except Exception as e:
             out = {"dataset": spec.name, "status": "failed", "error": f"{type(e).__name__}: {e}"}
-        results.append(out)
-        print(json.dumps(out, ensure_ascii=False))
+        if isinstance(out, list):
+            results.extend(out)
+            for row in out:
+                print(json.dumps(row, ensure_ascii=False))
+        else:
+            results.append(out)
+            print(json.dumps(out, ensure_ascii=False))
 
     report = {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

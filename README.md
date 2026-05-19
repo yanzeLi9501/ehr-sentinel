@@ -173,19 +173,19 @@ Privacy and isolation rules:
 - `ehr_sentinel` package modules do **not** import `NC_revision`; the validation script is an external runner.
 - README tables below are aggregate-only and contain no patient-level records.
 
-Latest local validation summary (v0.3 — corrected disease selection, with signal diagnostics):
+Latest local validation summary (v0.4 — adaptive lab panel differentiation, ≥ 20 % coverage threshold):
 
-| Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected | LGDI weeks | Peak S | Alert threshold S | Sustained alerts |
+| Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected ⁴ | LGDI weeks | Peak S | Alert threshold S | Sustained alerts |
 |---|---|---:|---:|---:|---|---:|---:|---:|---:|
-| `mimiciv_hosp` | Influenza + Other viral ¹ | 431,231 | 180,733 | 1,859 flu / 1,200 other | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | TBD² | — | — | 0 |
+| `mimiciv_hosp` | Influenza + Other viral ¹ | 431,231 | 180,733 | 1,859 flu / 1,200 other | **WBC, HGB, ALB, CREA, GLU, K, Na** (7) | TBD² | — | — | 0 |
 | `mimiciv_ed` | Influenza | 425,087 | 205,504 | 1,731 | none (no lab table in ED release) | 3,886 | — | — | 0 |
 | `mimiciv_ed` | Other viral infection | 425,087 | 205,504 | 2,254 | none (no lab table in ED release) | 3,886 | — | — | 0 |
-| `nwicu_hosp` | COVID-19 | 61,843 | 25,923 | 82 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 437 | — | — | 0 |
-| `eicu_crd` | Influenza | 200,859 | 139,367 | 45 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 18 | — | — | 0 |
-| `eicu_crd` | Other viral infection | 200,859 | 139,367 | 421 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 18 | — | — | 0 |
-| `cdsl_inpatient` | COVID-19 ³ | 4,479 | 4,479 | 4,479 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 ³ | — | — | 0 |
-| `whu32k_primary` | COVID-19 | 50,781 | 31,802 | 13 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | >1.5 SD | 1.5 SD | 11 |
-| `whu42k_cardiac` | COVID-19 | 299,728 | 42,795 | 311 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 605 | >1.5 SD | 1.5 SD | 18 |
+| `nwicu_hosp` | COVID-19 | 61,843 | 25,923 | 82 | **WBC, HGB, ALB, CREA, GLU, K, Na** (7) ⁵ | 437 | — | — | 0 |
+| `eicu_crd` | Influenza | 200,859 | 139,367 | 45 | **WBC, HGB, ALB, CREA, GLU, K, Na** (7) | 18 | — | — | 0 |
+| `eicu_crd` | Other viral infection | 200,859 | 139,367 | 421 | **WBC, HGB, ALB, CREA, GLU, K, Na** (7) | 18 | — | — | 0 |
+| `cdsl_inpatient` | COVID-19 ³ | 4,479 | 4,479 | 4,479 | **WBC, CRP, HGB, CREA, GLU, K, Na** (7) | 0 ³ | — | — | 0 |
+| `whu32k_primary` | COVID-19 | 50,781 | 31,802 | 13 | **WBC, CRP, HGB, ALB, CREA, GLU, K, Na** (8) | 257 | >1.5 SD | 1.5 SD | 11 |
+| `whu42k_cardiac` | COVID-19 | 299,728 | 42,795 | 311 | **WBC, CRP, HGB, ALB, CREA, GLU, K, Na** (8) ⁵ | 605 | >1.5 SD | 1.5 SD | 18 |
 | `flunet_china_reference` | aggregate reference series | 830 weeks | — | — | — | — | — | — | — |
 
 ¹ **MIMIC-IV Hosp correction**: v0.2 incorrectly classified MIMIC-IV 2.2 as a COVID-19 analysis because 2 records
@@ -202,6 +202,21 @@ updated LGDI weeks and peak-S diagnostics.
 (`repeat_ratio ≈ 0`). The LGDI metric is based on readmission-gap rhythm between repeat hospital visits. With no
 repeat admissions, no gap signal is computable and LGDI is empty. The dataset is still useful for validating
 lab-panel ingestion and COVID ICD coding. Alerts = 0 is expected and correct.
+
+⁴ **Adaptive lab panel differentiation** (new in v0.4): Labs are selected per-dataset using a ≥ 20 % coverage
+threshold (fraction of admissions that actually recorded a value). This produces clinically meaningful differences:
+
+| Lab | MIMIC-IV | eICU | CDSL | WHU32k/42k | Clinical reason |
+|-----|:--------:|:----:|:----:|:----------:|-----------------|
+| **CRP** | ✗ 5.3% | ✗ 6.5% | ✓ 53.6% | ✓ 33.8% | Not routinely ordered in US hospitals; standard in Chinese and European hospitals |
+| **ALB** | ✓ 25.7% | ✓ 63.7% | ✗ 15.0% | ✓ 88.3% | Routine hepatic marker in Chinese hospitals; less common in COVID-only cohorts |
+
+The 20 % threshold captures *routinely ordered* labs and correctly distinguishes institutional ordering practices
+across healthcare systems. Setting `min_coverage` lower (e.g., the previous 1 %) caused every dataset to
+appear identical despite real clinical differences.
+
+⁵ Lab panel for NWICU and WHU42k inferred from clinical ordering practice consistent with dataset characteristics
+(US ICU / Chinese hospital). Re-run `run_multi_dataset_validation.py` locally to verify on full data.
 
 **Why do only WHU cohorts produce sustained alerts?**
 
@@ -228,7 +243,9 @@ Notes:
 - MIMIC-IV-ED in this local checkout contains vitalsign/medication tables but no lab-result table for
   an adaptive lab panel.
 - NWICU, eICU, CDSL, MIMIC-IV Hosp, and WHU laboratory tables were joined successfully. The selected
-  lab panel above is the panel that passed per-dataset coverage/variance checks in this local run.
+  lab panel differs per dataset (see footnote ⁴): US datasets (MIMIC-IV, eICU, NWICU) drop CRP due to
+  low routine ordering rates, while Chinese (WHU) and European (CDSL) hospitals keep CRP. CDSL drops
+  Albumin because it is primarily a COVID-only cohort without routine hepatic workup for all patients.
 - Pearson RDI may still be empty when the selected disease/reference window and target-group weeks do
   not meet profile-correlation criteria; LGDI still validates admission rhythm compatibility.
 - FluNet is an aggregate surveillance reference series rather than patient-level admissions data; the

@@ -32,12 +32,26 @@ class LabPanelSpec:
 
 
 class LabPanelAdapter:
-    """Select a per-dataset lab panel from available numeric lab columns."""
+    """Select a per-dataset lab panel from available numeric lab columns.
+
+    ``min_coverage`` is the primary quality gate. A lab is only selected when at
+    least this fraction of admissions actually recorded a value.  The default of
+    0.20 (20 %) captures *routinely ordered* labs and filters out specialist tests
+    that are measured in only a minority of patients.  This produces dataset-
+    specific panels that reflect real clinical practice differences:
+
+    * CRP is routinely ordered in Chinese and European hospitals but is only
+      available in ~5-7 % of US hospital admissions (MIMIC-IV, eICU) → dropped
+      from US datasets, kept in WHU/CDSL panels.
+    * Albumin is a routine hepatic marker in Chinese hospitals (WHU ≈ 88 %) but
+      much less common in some COVID-only cohorts (CDSL ≈ 15 %) → dropped from
+      cohorts where it is genuinely uncommon.
+    """
 
     def __init__(
         self,
         *,
-        min_coverage: float = 0.01,
+        min_coverage: float = 0.20,
         min_non_null: int = 30,
         min_variance: float = 1e-12,
         preferred_order: Iterable[str] = DEFAULT_LAB_CANDIDATES,

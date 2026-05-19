@@ -15,24 +15,24 @@ from ehr_sentinel.utils.validation import ensure_columns, ensure_datetime
 # Column-name synonyms used by auto_configure
 _SYNONYMS: dict[str, list[str]] = {
     "mrn":             ["mrn", "patient_id", "subject_id", "patientid", "pid", "病案号"],
-    "admission_date":  ["admission_date", "admit_date", "admit_dt", "admitdate", "admittime", "入院日期"],
-    "discharge_date":  ["discharge_date", "disch_date", "dischtime", "出院日期"],
-    "los":             ["los", "length_of_stay", "los_days", "住院天数"],
+    "admission_date":  ["admission_date", "admit_date", "admit_dt", "admitdate", "admittime", "intime", "入院日期", "入院时间"],
+    "discharge_date":  ["discharge_date", "disch_date", "dischtime", "outtime", "出院日期", "出院时间"],
+    "los":             ["los", "length_of_stay", "los_days", "住院天数", "实际住院天数", "时间差"],
     "gap":             ["gap", "gap_days", "interval", "interval_days"],
-    "icd10":           ["icd10", "icd_10", "icd_code", "diagnosis_code", "诊断编码"],
-    "diagnosis_text":  ["diagnosis_text", "diagnosis", "dx_text", "诊断"],
-    "visit_order":     ["visit_order", "vo", "visit_number", "vn", "admission_seq"],
+    "icd10":           ["icd10", "icd_10", "icd_code", "diagnosis_code", "icd9code", "dia_ppal", "诊断编码"],
+    "diagnosis_text":  ["diagnosis_text", "diagnosis", "dx_text", "diag_inpat", "diagnosisstring", "诊断", "主要诊断", "诊断文本", "emr_初步诊断"],
+    "visit_order":     ["visit_order", "vo", "visit_number", "vn", "admission_seq", "住院次数"],
 }
 
 _LAB_SYNONYMS: dict[str, list[str]] = {
-    "WBC":  ["wbc", "white_blood_cell", "white_blood_cells"],
-    "CRP":  ["crp", "c_reactive_protein"],
-    "HGB":  ["hgb", "hemoglobin", "hb"],
-    "ALB":  ["alb", "albumin"],
-    "CREA": ["crea", "creatinine", "scr"],
-    "GLU":  ["glu", "glucose", "blood_glucose"],
-    "K":    ["k", "potassium"],
-    "Na":   ["na", "sodium"],
+    "WBC":  ["wbc", "lab_wbc", "white_blood_cell", "white_blood_cells", "白细胞"],
+    "CRP":  ["crp", "lab_crp", "c_reactive_protein", "超敏c反应蛋白"],
+    "HGB":  ["hgb", "lab_hgb", "hemoglobin", "hb", "血红蛋白"],
+    "ALB":  ["alb", "lab_alb", "albumin", "白蛋白"],
+    "CREA": ["crea", "lab_crea", "creatinine", "scr", "肌酐"],
+    "GLU":  ["glu", "lab_glu", "glucose", "blood_glucose", "空腹血糖"],
+    "K":    ["k", "lab_k", "potassium", "钾"],
+    "Na":   ["na", "lab_na", "sodium", "钠"],
 }
 
 

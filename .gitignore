@@ -11,6 +11,8 @@
 *.hdf5
 *.pkl
 *.joblib
+validation_outputs/
+multi_dataset_validation_results.*
 
 # Allow synthetic-data fixtures explicitly produced by tests/examples
 !tests/fixtures/*.csv

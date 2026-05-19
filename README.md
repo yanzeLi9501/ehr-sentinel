@@ -75,7 +75,81 @@ pip install -e ".[lgdi,dev]"
 pytest tests/ -v
 ```
 
-All 27 tests use only synthetic data — no real EHR files needed.
+All 32 tests use only synthetic data — no real EHR files needed.
+
+## Aggregate-only multi-dataset validation
+
+`scripts/run_multi_dataset_validation.py` validates that the package can read public PhysioNet/FluNet
+tables plus local WHU 32k/42k prepared cohorts without copying source data into the repository. It
+writes only aggregate JSON/Markdown summaries: row counts, patient counts, date ranges, detected
+lab panels, RDI/LGDI week counts, sustained-alert counts, and warning dates.
+
+The script expects data outside the package repository:
+
+```text
+Submit/
+├── ehr-sentinel/          # this package repository
+├── external_data/         # user-obtained public datasets; never committed
+│   ├── flunet/
+│   └── physionet/
+└── NC_revision/           # optional local WHU prepared tables; never imported by package code
+```
+
+Run the full aggregate validation:
+
+```bash
+cd ehr-sentinel
+pip install -e ".[lgdi,fhir,dev]"
+python scripts/run_multi_dataset_validation.py
+```
+
+Run a fast smoke check or selected datasets:
+
+```bash
+# first 1,000 normalized admissions per EHR dataset
+python scripts/run_multi_dataset_validation.py --max-rows 1000
+
+# selected datasets only
+python scripts/run_multi_dataset_validation.py --dataset whu32k_primary --dataset whu42k_cardiac
+
+# optional XGBoost training; off by default for reproducible, fast ingestion/metric validation
+python scripts/run_multi_dataset_validation.py --dataset whu32k_primary --train-xgb
+```
+
+Default outputs are written under `validation_outputs/`, which is git-ignored:
+
+```text
+validation_outputs/multi_dataset_validation_results.json
+validation_outputs/multi_dataset_validation_results.md
+```
+
+Privacy and isolation rules:
+
+- The script reads local data paths at runtime but does **not** copy source CSV/GZ files.
+- The repository `.gitignore` blocks CSV, Excel, Parquet, HDF5, pickle/joblib, and validation-output files.
+- `ehr_sentinel` package modules do **not** import `NC_revision`; the validation script is an external runner.
+- README tables below are aggregate-only and contain no patient-level records.
+
+Latest local validation summary:
+
+| Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |
+|---|---:|---:|---:|---|---|---:|---:|---:|---|
+| `mimiciv_hosp` | passed | 546,028 | 223,452 | 2105-10-04 to 2214-12-15 | none | 0 | 4,069 | 0 | full pipeline |
+| `mimiciv_ed` | passed | 425,087 | 205,504 | 2110-01-11 to 2212-04-05 | none | 0 | 853 | 0 | full pipeline |
+| `nwicu_hosp` | passed | 61,843 | 25,923 | 2100-01-01 to 2201-07-17 | none | 0 | 431 | 0 | full pipeline |
+| `cdsl_inpatient` | passed | 4,479 | 4,479 | 2100-09-16 to 2195-06-21 | none | 0 | 0 | 0 | full pipeline |
+| `whu32k_primary` | passed | 50,781 | 31,802 | 2012-04-16 to 2020-05-24 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | 254 | 10 | full pipeline |
+| `whu42k_cardiac` | passed | 299,728 | 42,795 | 2007-03-06 to 2024-12-05 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 605 | 18 | full pipeline |
+| `flunet_china_reference` | passed | 830 | — | 2008-12-29 to 2024-12-23 | aggregate reference series | — | — | — | reference only |
+
+Notes:
+
+- MIMIC-IV, MIMIC-IV-ED, NWICU, and CDSL validate public-data ingestion and LGDI compatibility from
+  admission/diagnosis tables. They do not contain the configured laboratory panel in the tested files,
+  so Pearson RDI is expected to be empty.
+- FluNet is an aggregate surveillance reference series rather than patient-level admissions data; the
+  validation confirms it can be loaded and summarized without entering the EHR pipeline.
+- WHU runs use local prepared cohorts and publish only aggregate counts/metrics in this README.
 
 ## Package layout
 

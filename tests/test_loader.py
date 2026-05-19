@@ -56,6 +56,33 @@ def test_auto_configure_detects_columns():
     assert out["mrn"].iloc[0] == "A"
 
 
+def test_auto_configure_detects_chinese_admission_and_lab_columns():
+    df = pd.DataFrame({
+        "病案号": ["A", "A", "B"],
+        "入院时间": ["2020-01-01", "2020-02-01", "2020-01-15"],
+        "出院时间": ["2020-01-05", "2020-02-03", "2020-01-20"],
+        "主要诊断": ["肺炎", "冠心病", "糖尿病"],
+        "白细胞": [6.0, 7.1, 5.4],
+        "超敏C反应蛋白": [2.0, 3.5, 1.5],
+        "血红蛋白": [130, 120, 110],
+        "白蛋白": [40, 38, 35],
+        "肌酐": [80, 88, 90],
+        "空腹血糖": [5.1, 6.2, 8.0],
+        "钾": [4.0, 4.2, 3.8],
+        "钠": [140, 138, 136],
+    })
+    loader = EHRLoader()
+    profile = loader.auto_configure(df)
+    assert profile.column_map["mrn"] == "病案号"
+    assert profile.column_map["admission_date"] == "入院时间"
+    assert profile.column_map["discharge_date"] == "出院时间"
+    assert profile.column_map["diagnosis_text"] == "主要诊断"
+    assert set(profile.detected_labs) == {"WBC", "CRP", "HGB", "ALB", "CREA", "GLU", "K", "Na"}
+    out = loader.from_dataframe(df)
+    assert {"WBC", "CRP", "HGB", "ALB", "CREA", "GLU", "K", "Na"}.issubset(out.columns)
+    assert out["admission_date"].dtype.kind == "M"
+
+
 def test_csv_roundtrip_preserves_icd10(synthetic_csv_with_signal):
     """ICD-10 codes survive the CSV write/read cycle unchanged."""
     df = EHRLoader().from_csv(synthetic_csv_with_signal)

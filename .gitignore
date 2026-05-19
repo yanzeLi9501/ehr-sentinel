@@ -11,6 +11,19 @@
 *.hdf5
 *.pkl
 *.joblib
+# Compressed data archives (e.g. labevents.csv.gz, *.csv.gz.part)
+*.gz
+*.zip
+*.tar
+*.tar.gz
+*.bz2
+*.7z
+*.part
+# NumPy / database files
+*.npy
+*.npz
+*.db
+*.sqlite
 validation_outputs/
 multi_dataset_validation_results.*
 

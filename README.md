@@ -96,6 +96,18 @@ Submit/
 └── NC_revision/           # optional local WHU prepared tables; never imported by package code
 ```
 
+For a complete MIMIC-IV installation stored elsewhere, pass `--mimic-iv-root` instead of copying
+`labevents.csv.gz` into this repository:
+
+```text
+D:\path\to\mimic-iv-2.2\mimic-iv-2.2\
+└── hosp\
+    ├── admissions.csv.gz
+    ├── diagnoses_icd.csv.gz
+    ├── d_labitems.csv.gz
+    └── labevents.csv.gz
+```
+
 Run the full aggregate validation:
 
 ```bash
@@ -112,6 +124,11 @@ python scripts/run_multi_dataset_validation.py --max-rows 1000
 
 # selected datasets only
 python scripts/run_multi_dataset_validation.py --dataset whu32k_primary --dataset whu42k_cardiac
+
+# complete MIMIC-IV hospital run with lab events from an external data folder
+python scripts/run_multi_dataset_validation.py \
+  --dataset mimiciv_hosp \
+  --mimic-iv-root "D:\path\to\mimic-iv-2.2\mimic-iv-2.2"
 
 # optional XGBoost training; off by default for reproducible, fast ingestion/metric validation
 python scripts/run_multi_dataset_validation.py --dataset whu32k_primary --train-xgb
@@ -135,9 +152,10 @@ Latest local validation summary:
 
 | Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |
 |---|---:|---:|---:|---|---|---:|---:|---:|---|
-| `mimiciv_hosp` | passed | 546,028 | 223,452 | 2105-10-04 to 2214-12-15 | not joined in local run; `labevents.csv.gz` incomplete (`.part` only) | 0 | 4,069 | 0 | full pipeline |
+| `mimiciv_hosp` | passed | 431,231 | 180,733 | 2105-10-04 to 2212-04-06 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 2,725 | 0 | full pipeline |
 | `mimiciv_ed` | passed | 425,087 | 205,504 | 2110-01-11 to 2212-04-05 | none; local ED release folder has vitalsign but no lab-result table | 0 | 853 | 0 | full pipeline |
 | `nwicu_hosp` | passed | 61,843 | 25,923 | 2100-01-01 to 2201-07-17 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 431 | 0 | full pipeline |
+| `eicu_crd` | passed | 200,859 | 139,367 | 2012-12-29 to 2015-09-27 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 4 | 0 | full pipeline |
 | `cdsl_inpatient` | passed | 4,479 | 4,479 | 2100-09-16 to 2195-06-21 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 0 | 0 | full pipeline |
 | `whu32k_primary` | passed | 50,781 | 31,802 | 2012-04-16 to 2020-05-24 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | 254 | 10 | full pipeline |
 | `whu42k_cardiac` | passed | 299,728 | 42,795 | 2007-03-06 to 2024-12-05 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 605 | 18 | full pipeline |
@@ -145,15 +163,13 @@ Latest local validation summary:
 
 Notes:
 
-- MIMIC-IV Hosp normally has laboratory events; this local checkout only contains
-  `labevents.csv.gz.part`, so labs were not joined in the run above. If a complete
-  `hosp/labevents.csv.gz` is present, the validation script automatically aggregates the configured
-  WBC/CRP/HGB/ALB/CREA/GLU/K/Na panel by `hadm_id`.
+- MIMIC-IV Hosp was validated with a complete external MIMIC-IV 2.2 root supplied via
+  `--mimic-iv-root`; the package repository still does not contain or copy `labevents.csv.gz`.
 - MIMIC-IV-ED in this local checkout contains vitalsign/medication tables but no lab-result table for
   the configured lab panel.
-- NWICU and CDSL laboratory tables were joined successfully and detected the full configured panel.
-  Pearson RDI may still be empty when the configured reference/target-group weeks do not meet the
-  profile-correlation criteria; LGDI still validates admission rhythm compatibility.
+- NWICU, eICU, CDSL, MIMIC-IV Hosp, and WHU laboratory tables were joined successfully and detected
+  the full configured panel. Pearson RDI may still be empty when the configured reference/target-group
+  weeks do not meet the profile-correlation criteria; LGDI still validates admission rhythm compatibility.
 - FluNet is an aggregate surveillance reference series rather than patient-level admissions data; the
   validation confirms it can be loaded and summarized without entering the EHR pipeline.
 - WHU runs use local prepared cohorts and publish only aggregate counts/metrics in this README.

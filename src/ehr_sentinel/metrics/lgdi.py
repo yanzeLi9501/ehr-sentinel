@@ -47,11 +47,19 @@ class LGDIComputer:
 
     # ── Residuals ──────────────────────────────────────────────────────
     @staticmethod
+    def _finite(values: np.ndarray | pd.Series) -> np.ndarray:
+        arr = np.asarray(values, dtype=float)
+        return arr[np.isfinite(arr)]
+
+    @staticmethod
     def compute_residuals(y_true: np.ndarray, y_pred: Optional[np.ndarray] = None) -> np.ndarray:
         y_true = np.asarray(y_true, dtype=float)
         if y_pred is None:
-            mu = float(np.nanmean(y_true)) if len(y_true) else 0.0
-            sd = float(np.nanstd(y_true)) or 1.0
+            finite = y_true[np.isfinite(y_true)]
+            if len(finite) == 0:
+                return np.zeros_like(y_true, dtype=float)
+            mu = float(finite.mean())
+            sd = float(finite.std()) or 1.0
             return (y_true - mu) / sd
         return y_true - np.asarray(y_pred, dtype=float)
 
@@ -73,7 +81,10 @@ class LGDIComputer:
         for group, sub in base.groupby(group_col):
             if pd.isna(group) or len(sub) < self.min_admissions:
                 continue
-            self._baseline_mean_abs[group] = float(np.nanmean(np.abs(sub[residual_col]))) or 1.0
+            finite = self._finite(sub[residual_col])
+            if len(finite) == 0:
+                continue
+            self._baseline_mean_abs[group] = float(np.abs(finite).mean()) or 1.0
         return self
 
     # ── Group MASE ──────────────────────────────────────────────────────
@@ -90,7 +101,8 @@ class LGDIComputer:
         for (week, group), sub in df.groupby([weeks, group_col]):
             if pd.isna(group) or len(sub) < self.min_admissions:
                 continue
-            mae = float(np.nanmean(np.abs(sub[residual_col])))
+            finite = self._finite(sub[residual_col])
+            mae = float(np.abs(finite).mean()) if len(finite) else 0.0
             denom = self._baseline_mean_abs.get(group, 1.0) or 1.0
             rows.append({"week": week.start_time, "group": group, "S": mae / denom, "n": int(len(sub))})
         return pd.DataFrame(rows)

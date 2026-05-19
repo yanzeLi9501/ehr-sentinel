@@ -21,6 +21,7 @@ import pandas as pd
 from ehr_sentinel import EHRLoader, EpidemicConfig, run_surveillance_pipeline
 
 
+MIMIC_IV_ROOT: Path | None = None
 LAB_COLUMNS = ["WBC", "CRP", "HGB", "ALB", "CREA", "GLU", "K", "Na"]
 WHU_LAB_MAP = {
     "白细胞": "WBC",
@@ -62,6 +63,27 @@ def _lab_panel_from_label(label: object, fluid: object | None = None) -> str | N
     if text == "potassium" or text.startswith("k -- potassium"):
         return "K"
     if text == "sodium" or text.startswith("na -- sodium"):
+        return "Na"
+    return None
+
+
+def _lab_panel_from_eicu_name(label: object) -> str | None:
+    text = "" if pd.isna(label) else str(label).strip().lower()
+    if text == "wbc x 1000":
+        return "WBC"
+    if text in {"crp", "crp-hs"}:
+        return "CRP"
+    if text in {"hgb", "hemoglobin"}:
+        return "HGB"
+    if text == "albumin":
+        return "ALB"
+    if text == "creatinine":
+        return "CREA"
+    if text in {"glucose", "bedside glucose"}:
+        return "GLU"
+    if text == "potassium":
+        return "K"
+    if text == "sodium":
         return "Na"
     return None
 
@@ -119,6 +141,30 @@ def _aggregate_cdsl_labs(path: Path) -> pd.DataFrame:
     agg["mean"] = agg["sum"] / agg["count"].replace({0: pd.NA})
     return agg.pivot(index="patient_id", columns="panel", values="mean").reset_index()
 
+
+def _aggregate_eicu_labs(path: Path) -> pd.DataFrame:
+    parts: list[pd.DataFrame] = []
+    for chunk in pd.read_csv(
+        path,
+        usecols=["patientunitstayid", "labname", "labresult"],
+        chunksize=1_000_000,
+        low_memory=False,
+    ):
+        chunk["panel"] = chunk["labname"].map(_lab_panel_from_eicu_name)
+        chunk = chunk.dropna(subset=["patientunitstayid", "panel"]).copy()
+        if chunk.empty:
+            continue
+        chunk["labresult"] = pd.to_numeric(chunk["labresult"], errors="coerce")
+        chunk = chunk.dropna(subset=["labresult"])
+        if not chunk.empty:
+            parts.append(chunk.groupby(["patientunitstayid", "panel"])["labresult"].agg(["sum", "count"]).reset_index())
+    if not parts:
+        return pd.DataFrame(columns=["patientunitstayid", *LAB_COLUMNS])
+
+    agg = pd.concat(parts, ignore_index=True).groupby(["patientunitstayid", "panel"], as_index=False)[["sum", "count"]].sum()
+    agg["mean"] = agg["sum"] / agg["count"].replace({0: pd.NA})
+    return agg.pivot(index="patientunitstayid", columns="panel", values="mean").reset_index()
+
 TEXT_TO_SURROGATE_ICD = [
     (re.compile(r"肺炎|肺部感染|呼吸衰竭|慢阻肺|COPD|哮喘|肺纤维化|肺栓塞", re.I), "J18"),
     (re.compile(r"糖尿病|血糖", re.I), "E11"),
@@ -145,7 +191,7 @@ def _first_diagnosis(path: Path, key: str, code_col: str = "icd_code") -> pd.Dat
 
 
 def _mimic_hosp(root: Path, _nc_root: Path) -> pd.DataFrame:
-    base = root / "physionet" / "mimiciv" / "3.1" / "hosp"
+    base = MIMIC_IV_ROOT / "hosp" if MIMIC_IV_ROOT and (MIMIC_IV_ROOT / "hosp").exists() else root / "physionet" / "mimiciv" / "3.1" / "hosp"
     adm = pd.read_csv(base / "admissions.csv.gz", usecols=["subject_id", "hadm_id", "admittime", "dischtime"], low_memory=False)
     dx = _first_diagnosis(base / "diagnoses_icd.csv.gz", "hadm_id")
     out = adm.merge(dx, on="hadm_id", how="left")
@@ -153,7 +199,7 @@ def _mimic_hosp(root: Path, _nc_root: Path) -> pd.DataFrame:
     if lab_path.exists():
         labs = _aggregate_labevents(lab_path, base / "d_labitems.csv.gz", "hadm_id")
         out = out.merge(labs, on="hadm_id", how="left")
-        out.attrs["lab_source_status"] = "joined from hosp/labevents.csv.gz"
+        out.attrs["lab_source_status"] = f"joined from {base.name}/labevents.csv.gz"
     elif (base / "labevents.csv.gz.part").exists():
         out.attrs["lab_source_status"] = "not joined: labevents.csv.gz is incomplete (.part file only)"
     else:
@@ -184,6 +230,45 @@ def _nwicu_hosp(root: Path, _nc_root: Path) -> pd.DataFrame:
     return out.rename(
         columns={"subject_id": "mrn", "admittime": "admission_date", "dischtime": "discharge_date"}
     )
+
+
+def _eicu_crd(root: Path, _nc_root: Path) -> pd.DataFrame:
+    base = root / "physionet" / "eicu-crd" / "2.0"
+    patient = pd.read_csv(
+        base / "patient.csv.gz",
+        usecols=[
+            "patientunitstayid",
+            "uniquepid",
+            "hospitaldischargeyear",
+            "hospitaladmitoffset",
+            "hospitaldischargeoffset",
+        ],
+        low_memory=False,
+    )
+    patient["admission_date"] = (
+        pd.to_datetime(patient["hospitaldischargeyear"].astype("Int64").astype(str) + "-01-01", errors="coerce")
+        + pd.to_timedelta(pd.to_numeric(patient["hospitaladmitoffset"], errors="coerce").fillna(0), unit="m")
+    )
+    patient["discharge_date"] = patient["admission_date"] + pd.to_timedelta(
+        (
+            pd.to_numeric(patient["hospitaldischargeoffset"], errors="coerce")
+            - pd.to_numeric(patient["hospitaladmitoffset"], errors="coerce")
+        ).clip(lower=0).fillna(0),
+        unit="m",
+    )
+    dx = pd.read_csv(
+        base / "diagnosis.csv.gz",
+        usecols=["patientunitstayid", "diagnosispriority", "icd9code", "diagnosisstring"],
+        low_memory=False,
+    )
+    dx = dx.sort_values(["patientunitstayid", "diagnosispriority"]).drop_duplicates("patientunitstayid", keep="first")
+    dx = dx.rename(columns={"icd9code": "icd10", "diagnosisstring": "diagnosis_text"})
+    labs = _aggregate_eicu_labs(base / "lab.csv.gz")
+    out = patient.merge(dx[["patientunitstayid", "icd10", "diagnosis_text"]], on="patientunitstayid", how="left").merge(
+        labs, on="patientunitstayid", how="left"
+    )
+    out.attrs["lab_source_status"] = "joined from eicu-crd/lab.csv.gz"
+    return out.rename(columns={"uniquepid": "mrn"})
 
 
 def _cdsl(root: Path, _nc_root: Path) -> pd.DataFrame:
@@ -258,6 +343,7 @@ DATASETS = [
     DatasetSpec("mimiciv_hosp", "ehr", _mimic_hosp),
     DatasetSpec("mimiciv_ed", "ehr", _mimic_ed),
     DatasetSpec("nwicu_hosp", "ehr", _nwicu_hosp),
+    DatasetSpec("eicu_crd", "ehr", _eicu_crd),
     DatasetSpec("cdsl_inpatient", "ehr", _cdsl),
     DatasetSpec("whu32k_primary", "ehr", _whu32k, target_group="Cardiovascular"),
     DatasetSpec("whu42k_cardiac", "ehr", _whu42k, target_group="Cardiovascular"),
@@ -346,18 +432,29 @@ def _write_markdown(results: list[dict], path: Path) -> None:
 
 
 def main() -> int:
+    global MIMIC_IV_ROOT
     repo = Path(__file__).resolve().parents[1]
     default_root = repo.parent / "external_data"
     default_nc = repo.parent / "NC_revision"
     ap = argparse.ArgumentParser(description="Aggregate-only public + WHU multi-dataset validation.")
     ap.add_argument("--data-root", type=Path, default=default_root)
     ap.add_argument("--nc-root", type=Path, default=default_nc)
+    ap.add_argument(
+        "--mimic-iv-root",
+        type=Path,
+        default=None,
+        help="Optional complete MIMIC-IV root containing hosp/labevents.csv.gz (for example mimic-iv-2.2/mimic-iv-2.2).",
+    )
     ap.add_argument("--dataset", action="append", choices=[d.name for d in DATASETS], help="Run only selected dataset(s).")
     ap.add_argument("--train-xgb", action="store_true", help="Enable XGBoost training; default validates ingestion and metrics only.")
     ap.add_argument("--max-rows", type=int, default=None, help="Optional row cap for smoke runs. Default uses all available rows.")
     ap.add_argument("--json-out", type=Path, default=repo / "validation_outputs" / "multi_dataset_validation_results.json")
     ap.add_argument("--md-out", type=Path, default=repo / "validation_outputs" / "multi_dataset_validation_results.md")
     args = ap.parse_args()
+    if args.mimic_iv_root is not None:
+        if not (args.mimic_iv_root / "hosp" / "labevents.csv.gz").exists():
+            raise FileNotFoundError(args.mimic_iv_root / "hosp" / "labevents.csv.gz")
+        MIMIC_IV_ROOT = args.mimic_iv_root
 
     selected = [d for d in DATASETS if args.dataset is None or d.name in set(args.dataset)]
     results: list[dict] = []

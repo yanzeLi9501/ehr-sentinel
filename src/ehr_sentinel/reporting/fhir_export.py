@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -53,7 +53,7 @@ class FHIRExporter:
             "status": "complete",
             "type": "summary",
             "measure": f"urn:ehr-sentinel:{self.target_disease.lower().replace(' ', '-')}",
-            "date": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "date": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "period": {"start": ps, "end": pe},
             "subject": {"display": f"Population surveillance for {self.target_disease}"},
             "group": groups,

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,7 +29,7 @@ class ModelPersistence:
         joblib.dump(model, path)
         meta = {
             "ehr_sentinel_version": __version__,
-            "saved_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "saved_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "target": target,
             "feature_names": list(feature_names),
             "metrics": dict(metrics or {}),

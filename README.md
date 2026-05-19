@@ -26,7 +26,7 @@ disease-agnostic early-warning system for epidemic monitoring from electronic he
 
 - Python ≥ 3.10
 - Core dependencies: `pandas`, `numpy`, `scipy`, `matplotlib`, `pydantic >= 2`
-- Optional `[lgdi]`: `xgboost >= 2`, `optuna >= 3`, `joblib`
+- Optional `[lgdi]`: `xgboost >= 1.7`, `optuna >= 3`, `scikit-learn >= 1.2`
 - Optional `[fhir]`: `fhir.resources >= 7`
 
 ## Installation
@@ -42,7 +42,7 @@ pip install "ehr-sentinel[lgdi,fhir]"
 pip install -e ".[lgdi,fhir,dev]"
 ```
 
-The `lgdi` extra installs `xgboost` and `optuna`. The `fhir` extra installs `fhir.resources`.
+The `lgdi` extra installs `xgboost`, `optuna`, and `scikit-learn`. The `fhir` extra installs `fhir.resources`.
 
 ## Quickstart (synthetic data, no real EHR required)
 

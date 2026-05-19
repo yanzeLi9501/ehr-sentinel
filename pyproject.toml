@@ -34,9 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-lgdi = ["xgboost>=1.7", "optuna>=3"]
+lgdi = ["xgboost>=1.7", "optuna>=3", "scikit-learn>=1.2"]
 fhir = ["fhir.resources>=7"]
-gpu = ["xgboost>=1.7"]
+gpu = ["xgboost>=1.7", "scikit-learn>=1.2"]
 dev = [
     "pytest>=7",
     "pytest-cov>=4",
@@ -45,6 +45,7 @@ dev = [
 all = [
     "xgboost>=1.7",
     "optuna>=3",
+    "scikit-learn>=1.2",
     "fhir.resources>=7",
 ]
 

@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ehr-sentinel"
+version = "0.2.0"
+description = "General-purpose EHR epidemic surveillance toolkit (Pearson RDI + LGDI + XGBoost rhythm prediction)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Yanze Li"},
+    {name = "Lingfeng Zha"},
+]
+keywords = ["EHR", "epidemic", "surveillance", "XGBoost", "FHIR", "LGDI", "Pearson"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pandas>=1.5",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "pydantic>=2",
+    "joblib>=1.2",
+]
+
+[project.optional-dependencies]
+lgdi = ["xgboost>=1.7", "optuna>=3"]
+fhir = ["fhir.resources>=7"]
+gpu = ["xgboost>=1.7"]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "ruff>=0.1",
+]
+all = [
+    "xgboost>=1.7",
+    "optuna>=3",
+    "fhir.resources>=7",
+]
+
+[project.urls]
+Documentation = "https://github.com/ehr-sentinel/ehr-sentinel"
+Source = "https://github.com/ehr-sentinel/ehr-sentinel"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ehr_sentinel = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: marks tests that require CUDA GPU (deselect with -m 'not gpu')",
+    "slow: slow tests (deselect with -m 'not slow')",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

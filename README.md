@@ -32,14 +32,25 @@ disease-agnostic early-warning system for epidemic monitoring from electronic he
 
 ## Installation
 
+Clone the repository and install with one command:
+
 ```bash
-# minimal
-pip install ehr-sentinel
+git clone https://github.com/yanzeLi9501/ehr-sentinel.git
+cd ehr-sentinel
+pip install -e ".[lgdi,fhir]"
+```
 
-# full (XGBoost tuning + FHIR)
-pip install "ehr-sentinel[lgdi,fhir]"
+Or install directly from GitHub without cloning:
 
-# development (includes pytest, ruff)
+```bash
+pip install "ehr-sentinel[lgdi,fhir] @ git+https://github.com/yanzeLi9501/ehr-sentinel.git@main"
+```
+
+For development (includes pytest, ruff):
+
+```bash
+git clone https://github.com/yanzeLi9501/ehr-sentinel.git
+cd ehr-sentinel
 pip install -e ".[lgdi,fhir,dev]"
 ```
 
@@ -72,11 +83,13 @@ walkthroughs.
 ## Running tests
 
 ```bash
+git clone https://github.com/yanzeLi9501/ehr-sentinel.git
+cd ehr-sentinel
 pip install -e ".[lgdi,dev]"
 pytest tests/ -v
 ```
 
-All 34 tests use only synthetic data — no real EHR files needed.
+All 36 tests use only synthetic data — no real EHR files needed.
 
 ## Aggregate-only multi-dataset validation
 
@@ -122,6 +135,7 @@ D:\path\to\mimic-iv-2.2\mimic-iv-2.2\
 Run the full aggregate validation:
 
 ```bash
+git clone https://github.com/yanzeLi9501/ehr-sentinel.git
 cd ehr-sentinel
 pip install -e ".[lgdi,fhir,dev]"
 python scripts/run_multi_dataset_validation.py

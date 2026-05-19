@@ -41,6 +41,84 @@ WHU_LAB_MAP = {
     "lab_Na": "Na",
 }
 
+
+def _lab_panel_from_label(label: object, fluid: object | None = None) -> str | None:
+    text = "" if pd.isna(label) else str(label).strip().lower()
+    fluid_text = "" if fluid is None or pd.isna(fluid) else str(fluid).strip().lower()
+    if fluid_text and fluid_text != "blood":
+        return None
+    if "white blood cells" in text or text.startswith("wbc --"):
+        return "WBC"
+    if "c-reactive protein" in text or "c reactive protein" in text:
+        return "CRP"
+    if (text == "hemoglobin" or text.startswith("hgb -- hemoglobin")) and "glycated" not in text:
+        return "HGB"
+    if text == "albumin" or text.startswith("alb -- albumin"):
+        return "ALB"
+    if text == "creatinine" or text.startswith("crea -- creatinine"):
+        return "CREA"
+    if text == "glucose" or text.startswith("glu -- glucose") or text.startswith("gluors -- glucose"):
+        return "GLU"
+    if text == "potassium" or text.startswith("k -- potassium"):
+        return "K"
+    if text == "sodium" or text.startswith("na -- sodium"):
+        return "Na"
+    return None
+
+
+def _aggregate_labevents(lab_path: Path, item_path: Path, key: str) -> pd.DataFrame:
+    items = pd.read_csv(item_path, usecols=["itemid", "label", "fluid"])
+    items["panel"] = [_lab_panel_from_label(label, fluid) for label, fluid in zip(items["label"], items["fluid"])]
+    item_map = items.dropna(subset=["panel"]).set_index("itemid")["panel"].to_dict()
+    if not item_map:
+        return pd.DataFrame(columns=[key, *LAB_COLUMNS])
+
+    parts: list[pd.DataFrame] = []
+    for chunk in pd.read_csv(
+        lab_path,
+        usecols=[key, "itemid", "valuenum"],
+        chunksize=1_000_000,
+        low_memory=False,
+    ):
+        chunk = chunk[chunk["itemid"].isin(item_map) & chunk[key].notna() & chunk["valuenum"].notna()].copy()
+        if chunk.empty:
+            continue
+        chunk["panel"] = chunk["itemid"].map(item_map)
+        chunk["valuenum"] = pd.to_numeric(chunk["valuenum"], errors="coerce")
+        chunk = chunk.dropna(subset=["valuenum"])
+        if not chunk.empty:
+            parts.append(chunk.groupby([key, "panel"])["valuenum"].agg(["sum", "count"]).reset_index())
+    if not parts:
+        return pd.DataFrame(columns=[key, *LAB_COLUMNS])
+
+    agg = pd.concat(parts, ignore_index=True).groupby([key, "panel"], as_index=False)[["sum", "count"]].sum()
+    agg["mean"] = agg["sum"] / agg["count"].replace({0: pd.NA})
+    return agg.pivot(index=key, columns="panel", values="mean").reset_index()
+
+
+def _aggregate_cdsl_labs(path: Path) -> pd.DataFrame:
+    parts: list[pd.DataFrame] = []
+    for chunk in pd.read_csv(
+        path,
+        usecols=["patient_id", "item_lab", "val_result"],
+        chunksize=500_000,
+        low_memory=False,
+    ):
+        chunk["panel"] = chunk["item_lab"].map(_lab_panel_from_label)
+        chunk = chunk.dropna(subset=["patient_id", "panel"]).copy()
+        if chunk.empty:
+            continue
+        chunk["val_result"] = pd.to_numeric(chunk["val_result"], errors="coerce")
+        chunk = chunk.dropna(subset=["val_result"])
+        if not chunk.empty:
+            parts.append(chunk.groupby(["patient_id", "panel"])["val_result"].agg(["sum", "count"]).reset_index())
+    if not parts:
+        return pd.DataFrame(columns=["patient_id", *LAB_COLUMNS])
+
+    agg = pd.concat(parts, ignore_index=True).groupby(["patient_id", "panel"], as_index=False)[["sum", "count"]].sum()
+    agg["mean"] = agg["sum"] / agg["count"].replace({0: pd.NA})
+    return agg.pivot(index="patient_id", columns="panel", values="mean").reset_index()
+
 TEXT_TO_SURROGATE_ICD = [
     (re.compile(r"肺炎|肺部感染|呼吸衰竭|慢阻肺|COPD|哮喘|肺纤维化|肺栓塞", re.I), "J18"),
     (re.compile(r"糖尿病|血糖", re.I), "E11"),
@@ -70,7 +148,17 @@ def _mimic_hosp(root: Path, _nc_root: Path) -> pd.DataFrame:
     base = root / "physionet" / "mimiciv" / "3.1" / "hosp"
     adm = pd.read_csv(base / "admissions.csv.gz", usecols=["subject_id", "hadm_id", "admittime", "dischtime"], low_memory=False)
     dx = _first_diagnosis(base / "diagnoses_icd.csv.gz", "hadm_id")
-    return adm.merge(dx, on="hadm_id", how="left").rename(
+    out = adm.merge(dx, on="hadm_id", how="left")
+    lab_path = base / "labevents.csv.gz"
+    if lab_path.exists():
+        labs = _aggregate_labevents(lab_path, base / "d_labitems.csv.gz", "hadm_id")
+        out = out.merge(labs, on="hadm_id", how="left")
+        out.attrs["lab_source_status"] = "joined from hosp/labevents.csv.gz"
+    elif (base / "labevents.csv.gz.part").exists():
+        out.attrs["lab_source_status"] = "not joined: labevents.csv.gz is incomplete (.part file only)"
+    else:
+        out.attrs["lab_source_status"] = "not joined: labevents.csv.gz not found"
+    return out.rename(
         columns={"subject_id": "mrn", "admittime": "admission_date", "dischtime": "discharge_date"}
     )
 
@@ -79,7 +167,9 @@ def _mimic_ed(root: Path, _nc_root: Path) -> pd.DataFrame:
     base = root / "physionet" / "mimic-iv-ed" / "2.2" / "ed"
     stays = pd.read_csv(base / "edstays.csv.gz", usecols=["subject_id", "stay_id", "intime", "outtime"], low_memory=False)
     dx = _first_diagnosis(base / "diagnosis.csv.gz", "stay_id")
-    return stays.merge(dx, on="stay_id", how="left").rename(
+    out = stays.merge(dx, on="stay_id", how="left")
+    out.attrs["lab_source_status"] = "not joined: MIMIC-IV-ED release folder has vitalsign but no lab-result table"
+    return out.rename(
         columns={"subject_id": "mrn", "intime": "admission_date", "outtime": "discharge_date"}
     )
 
@@ -88,7 +178,10 @@ def _nwicu_hosp(root: Path, _nc_root: Path) -> pd.DataFrame:
     base = root / "physionet" / "nwicu-northwestern-icu" / "0.1.0" / "data" / "nw_hosp"
     adm = pd.read_csv(base / "admissions.csv.gz", usecols=["subject_id", "hadm_id", "admittime", "dischtime"], low_memory=False)
     dx = _first_diagnosis(base / "diagnoses_icd.csv.gz", "hadm_id")
-    return adm.merge(dx, on="hadm_id", how="left").rename(
+    labs = _aggregate_labevents(base / "labevents.csv.gz", base / "d_labitems.csv.gz", "hadm_id")
+    out = adm.merge(dx, on="hadm_id", how="left").merge(labs, on="hadm_id", how="left")
+    out.attrs["lab_source_status"] = "joined from nw_hosp/labevents.csv.gz"
+    return out.rename(
         columns={"subject_id": "mrn", "admittime": "admission_date", "dischtime": "discharge_date"}
     )
 
@@ -102,7 +195,10 @@ def _cdsl(root: Path, _nc_root: Path) -> pd.DataFrame:
     )
     dx = pd.read_csv(base / "diagnosis_hosp_03.csv", usecols=["patient_id", "dia_ppal"], low_memory=False)
     dx = dx.drop_duplicates("patient_id", keep="first").rename(columns={"dia_ppal": "icd10"})
-    return patient.merge(dx, on="patient_id", how="left").rename(
+    labs = _aggregate_cdsl_labs(base / "lab_06.csv")
+    out = patient.merge(dx, on="patient_id", how="left").merge(labs, on="patient_id", how="left")
+    out.attrs["lab_source_status"] = "joined from lab_06.csv"
+    return out.rename(
         columns={
             "patient_id": "mrn",
             "admission_d_inpat": "admission_date",
@@ -193,6 +289,7 @@ def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bo
     raw = spec.loader(root, nc_root)
     assert isinstance(raw, pd.DataFrame)
     source_rows = int(len(raw))
+    lab_source_status = str(raw.attrs.get("lab_source_status", "not applicable"))
     df = EHRLoader().from_dataframe(raw)
     df = df.dropna(subset=["mrn", "admission_date"]).copy()
     if "icd10" not in df.columns:
@@ -215,6 +312,7 @@ def _run_ehr_dataset(spec: DatasetSpec, root: Path, nc_root: Path, train_xgb: bo
         "date_start": str(dates.min().date()) if pd.notna(dates.min()) else None,
         "date_end": str(dates.max().date()) if pd.notna(dates.max()) else None,
         "labs_detected": [c for c in LAB_COLUMNS if c in df.columns],
+        "lab_source_status": lab_source_status,
         "rdi_weeks": int(len(result.rdi_timeline)),
         "lgdi_weeks": int(len(result.lgdi_result.lgdi)),
         "sustained_alerts": int(result.alerts["alert_sustained"].sum()) if "alert_sustained" in result.alerts else 0,
@@ -231,14 +329,17 @@ def _write_markdown(results: list[dict], path: Path) -> None:
         "",
         "Aggregate-only validation output. No patient-level rows or source data are included.",
         "",
-        "| Dataset | Status | Rows tested | Patients | Date range | RDI weeks | LGDI weeks | Sustained alerts | Mode |",
-        "|---|---:|---:|---:|---|---:|---:|---:|---|",
+        "| Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |",
+        "|---|---:|---:|---:|---|---|---:|---:|---:|---|",
     ]
     for r in results:
         date_range = f"{r.get('date_start')} to {r.get('date_end')}"
+        labs = r.get("labs_detected", "")
+        if isinstance(labs, list):
+            labs = ", ".join(labs) if labs else r.get("lab_source_status", "none")
         lines.append(
             f"| {r['dataset']} | {r['status']} | {r.get('rows_tested', r.get('source_rows', ''))} | "
-            f"{r.get('patients', '')} | {date_range} | {r.get('rdi_weeks', '')} | "
+            f"{r.get('patients', '')} | {date_range} | {labs} | {r.get('rdi_weeks', '')} | "
             f"{r.get('lgdi_weeks', '')} | {r.get('sustained_alerts', '')} | {r.get('mode', '')} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

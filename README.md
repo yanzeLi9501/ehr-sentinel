@@ -80,9 +80,10 @@ All 32 tests use only synthetic data — no real EHR files needed.
 ## Aggregate-only multi-dataset validation
 
 `scripts/run_multi_dataset_validation.py` validates that the package can read public PhysioNet/FluNet
-tables plus local WHU 32k/42k prepared cohorts without copying source data into the repository. It
-writes only aggregate JSON/Markdown summaries: row counts, patient counts, date ranges, detected
-lab panels, RDI/LGDI week counts, sustained-alert counts, and warning dates.
+tables plus local WHU 32k/42k prepared cohorts without copying source data into the repository. Where
+available, it aggregates admission-level lab panels from source lab tables before running the
+pipeline. It writes only aggregate JSON/Markdown summaries: row counts, patient counts, date ranges,
+detected lab panels, RDI/LGDI week counts, sustained-alert counts, and warning dates.
 
 The script expects data outside the package repository:
 
@@ -134,19 +135,25 @@ Latest local validation summary:
 
 | Dataset | Status | Rows tested | Patients | Date range | Labs detected | RDI weeks | LGDI weeks | Sustained alerts | Mode |
 |---|---:|---:|---:|---|---|---:|---:|---:|---|
-| `mimiciv_hosp` | passed | 546,028 | 223,452 | 2105-10-04 to 2214-12-15 | none | 0 | 4,069 | 0 | full pipeline |
-| `mimiciv_ed` | passed | 425,087 | 205,504 | 2110-01-11 to 2212-04-05 | none | 0 | 853 | 0 | full pipeline |
-| `nwicu_hosp` | passed | 61,843 | 25,923 | 2100-01-01 to 2201-07-17 | none | 0 | 431 | 0 | full pipeline |
-| `cdsl_inpatient` | passed | 4,479 | 4,479 | 2100-09-16 to 2195-06-21 | none | 0 | 0 | 0 | full pipeline |
+| `mimiciv_hosp` | passed | 546,028 | 223,452 | 2105-10-04 to 2214-12-15 | not joined in local run; `labevents.csv.gz` incomplete (`.part` only) | 0 | 4,069 | 0 | full pipeline |
+| `mimiciv_ed` | passed | 425,087 | 205,504 | 2110-01-11 to 2212-04-05 | none; local ED release folder has vitalsign but no lab-result table | 0 | 853 | 0 | full pipeline |
+| `nwicu_hosp` | passed | 61,843 | 25,923 | 2100-01-01 to 2201-07-17 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 431 | 0 | full pipeline |
+| `cdsl_inpatient` | passed | 4,479 | 4,479 | 2100-09-16 to 2195-06-21 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 0 | 0 | full pipeline |
 | `whu32k_primary` | passed | 50,781 | 31,802 | 2012-04-16 to 2020-05-24 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 257 | 254 | 10 | full pipeline |
 | `whu42k_cardiac` | passed | 299,728 | 42,795 | 2007-03-06 to 2024-12-05 | WBC, CRP, HGB, ALB, CREA, GLU, K, Na | 0 | 605 | 18 | full pipeline |
 | `flunet_china_reference` | passed | 830 | — | 2008-12-29 to 2024-12-23 | aggregate reference series | — | — | — | reference only |
 
 Notes:
 
-- MIMIC-IV, MIMIC-IV-ED, NWICU, and CDSL validate public-data ingestion and LGDI compatibility from
-  admission/diagnosis tables. They do not contain the configured laboratory panel in the tested files,
-  so Pearson RDI is expected to be empty.
+- MIMIC-IV Hosp normally has laboratory events; this local checkout only contains
+  `labevents.csv.gz.part`, so labs were not joined in the run above. If a complete
+  `hosp/labevents.csv.gz` is present, the validation script automatically aggregates the configured
+  WBC/CRP/HGB/ALB/CREA/GLU/K/Na panel by `hadm_id`.
+- MIMIC-IV-ED in this local checkout contains vitalsign/medication tables but no lab-result table for
+  the configured lab panel.
+- NWICU and CDSL laboratory tables were joined successfully and detected the full configured panel.
+  Pearson RDI may still be empty when the configured reference/target-group weeks do not meet the
+  profile-correlation criteria; LGDI still validates admission rhythm compatibility.
 - FluNet is an aggregate surveillance reference series rather than patient-level admissions data; the
   validation confirms it can be loaded and summarized without entering the EHR pipeline.
 - WHU runs use local prepared cohorts and publish only aggregate counts/metrics in this README.

@@ -1,4 +1,9 @@
-"""Pytest fixtures — synthetic data only."""
+"""Pytest fixtures — synthetic data only.
+
+All data is generated programmatically; no real patient records are used.
+The ``*_csv`` fixtures write the synthetic DataFrames to actual CSV files on
+disk so that ``EHRLoader.from_csv()`` can be exercised end-to-end.
+"""
 from __future__ import annotations
 
 import pytest
@@ -23,6 +28,24 @@ def synthetic_admissions_with_signal(synthetic_admissions):
         effect_size=0.6,
         seed=7,
     )
+
+
+# ── On-disk CSV fixtures (session-scoped temp dir) ───────────────────────────
+
+@pytest.fixture(scope="session")
+def synthetic_csv(tmp_path_factory, synthetic_admissions):
+    """Write baseline synthetic admissions to a real CSV file."""
+    p = tmp_path_factory.mktemp("data") / "synthetic_admissions.csv"
+    synthetic_admissions.to_csv(p, index=False)
+    return p
+
+
+@pytest.fixture(scope="session")
+def synthetic_csv_with_signal(tmp_path_factory, synthetic_admissions_with_signal):
+    """Write epidemic-signal admissions to a real CSV file."""
+    p = tmp_path_factory.mktemp("data_signal") / "synthetic_admissions_signal.csv"
+    synthetic_admissions_with_signal.to_csv(p, index=False)
+    return p
 
 
 @pytest.fixture(scope="session")

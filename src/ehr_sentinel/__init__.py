@@ -23,9 +23,9 @@ from ehr_sentinel.features.comorbidity import ComorbidityGrouper
 from ehr_sentinel.features.builder import FeatureBuilder
 from ehr_sentinel.features.adaptive import AutoFeatureEngineer, DiseaseDetector, LabPanelAdapter, build_adaptive_config
 from ehr_sentinel.metrics.pearson import PearsonProfileCorrelation
-from ehr_sentinel.metrics.lgdi import LGDIComputer
+from ehr_sentinel.metrics.lgdi import LGDIComputer, SlidingWindowLGDI
 from ehr_sentinel.metrics.evaluation import AlertEvaluator
-from ehr_sentinel.alerts.engine import ConsensusRule, SeasonFilter, SustainedRule
+from ehr_sentinel.alerts.engine import ConsensusRule, SeasonFilter, SustainedRule, CUSUMRule, EWMARule, SeasonalAdjustedRule, MultiScaleRule
 from ehr_sentinel.alerts.epidemic import EpidemicPredictor
 from ehr_sentinel.reporting.tables import ReportGenerator
 from ehr_sentinel.utils.gpu import detect_device
@@ -75,10 +75,15 @@ __all__ = [
     "build_adaptive_config",
     "PearsonProfileCorrelation",
     "LGDIComputer",
+    "SlidingWindowLGDI",
     "AlertEvaluator",
     "ConsensusRule",
     "SeasonFilter",
     "SustainedRule",
+    "CUSUMRule",
+    "EWMARule",
+    "SeasonalAdjustedRule",
+    "MultiScaleRule",
     "EpidemicPredictor",
     "ReportGenerator",
     "DashboardRenderer",

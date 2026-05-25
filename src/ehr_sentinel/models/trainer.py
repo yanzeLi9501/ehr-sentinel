@@ -50,7 +50,7 @@ class XGBTrainer:
         self,
         params: Optional[dict] = None,
         device_info: Optional[DeviceInfo] = None,
-        random_state: int = 42,
+        random_state: int = 20260513,
     ) -> None:
         try:
             import xgboost as xgb  # noqa: F401

@@ -48,6 +48,50 @@ def compute_seasonal_features(df: pd.DataFrame, date_col: str = "admission_date"
     return df
 
 
+def compute_next_targets(
+    df: pd.DataFrame,
+    mrn_col: str = "mrn",
+    date_col: str = "admission_date",
+    discharge_col: str = "discharge_date",
+    los_col: str = "los",
+    gap_col: str = "gap",
+    los_cap: float = 180.0,
+    gap_cap: float = 3650.0,
+) -> pd.DataFrame:
+    """Add next-admission LOS and gap targets via shift(−1) within each patient.
+
+    Produces ``next_los_days`` and ``next_gap_days`` columns — the targets
+    used by the dual XGBoost models in ``SlidingWindowLGDI``.  Uses
+    ``shift(−1)`` so each row contains the *future* values; the last visit
+    per patient receives NaN.
+
+    The gap to the *next* admission is computed as:
+        next_admit_dt − discharge_dt  (in days)
+    capped at ``gap_cap`` days and set to NaN if negative.
+    """
+    df = df.sort_values([mrn_col, date_col]).copy()
+    g = df.groupby(mrn_col, sort=False)
+
+    # next LOS: shift(-1) of current LOS, clipped to [0, los_cap]
+    next_los = g[los_col].shift(-1) if los_col in df.columns else pd.Series(np.nan, index=df.index)
+    df["next_los_days"] = pd.to_numeric(next_los, errors="coerce").clip(lower=0, upper=los_cap)
+
+    # next gap: next_admit_dt − current discharge_dt
+    if discharge_col in df.columns:
+        discharge_dt = pd.to_datetime(df[discharge_col], errors="coerce")
+        next_admit_dt = g[date_col].shift(-1).apply(lambda x: pd.to_datetime(x, errors="coerce"))
+        raw_gap = (next_admit_dt - discharge_dt).dt.total_seconds() / 86400.0
+        raw_gap = raw_gap.where((raw_gap >= 0) & (raw_gap <= gap_cap), other=np.nan)
+        df["next_gap_days"] = raw_gap
+    elif gap_col in df.columns:
+        # Fallback: shift(-1) of existing gap column
+        df["next_gap_days"] = g[gap_col].shift(-1).clip(lower=0, upper=gap_cap)
+    else:
+        df["next_gap_days"] = np.nan
+
+    return df.reset_index(drop=True)
+
+
 def compute_prior_stats(
     df: pd.DataFrame,
     columns: list[str],

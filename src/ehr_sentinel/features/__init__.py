@@ -5,6 +5,7 @@ from ehr_sentinel.features.temporal import (
     compute_visit_order,
     compute_seasonal_features,
     compute_prior_stats,
+    compute_next_targets,
 )
 from ehr_sentinel.features.builder import FeatureBuilder
 from ehr_sentinel.features.adaptive import (
@@ -23,6 +24,7 @@ __all__ = [
     "compute_visit_order",
     "compute_seasonal_features",
     "compute_prior_stats",
+    "compute_next_targets",
     "FeatureBuilder",
     "AutoFeatureEngineer",
     "DiseaseDetector",

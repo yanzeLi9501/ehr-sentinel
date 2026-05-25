@@ -68,7 +68,21 @@ class EpidemicConfig(BaseModel):
         description="Months when alerts are active (e.g., [11,12,1,2,3] for flu).",
     )
 
-    # ── Feature engineering knobs ───────────────────────────────────────
+    # ── LGDI window size tuning ─────────────────────────────────────────
+    lgdi_min_window_n: int = Field(
+        default=50, ge=1,
+        description=(
+            "Minimum admissions per 4-week window for SlidingWindowLGDI. "
+            "Reduce for smaller datasets (e.g., 10 for synthetic testing)."
+        ),
+    )
+    lgdi_min_group_n: int = Field(
+        default=10, ge=1,
+        description=(
+            "Minimum admissions per comorbidity group per window for SlidingWindowLGDI. "
+            "Reduce for smaller datasets (e.g., 2 for synthetic testing)."
+        ),
+    )
     min_visit_order: int = Field(default=5, ge=1)
     gap_cap_days: int = Field(default=30, ge=1)
     los_cap_days: int = Field(default=60, ge=1)

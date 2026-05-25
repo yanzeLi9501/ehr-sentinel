@@ -50,8 +50,8 @@ all = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/ehr-sentinel/ehr-sentinel"
-Source = "https://github.com/ehr-sentinel/ehr-sentinel"
+Documentation = "https://github.com/yanzeLi9501/ehr-sentinel"
+Source = "https://github.com/yanzeLi9501/ehr-sentinel"
 
 [tool.setuptools.packages.find]
 where = ["src"]

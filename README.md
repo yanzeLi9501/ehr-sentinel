@@ -19,7 +19,10 @@ disease-agnostic early-warning system for epidemic monitoring from electronic he
 - **Adaptive validation** — per-dataset lab-panel selection, ICD/text disease detection, and feature-plan selection.
 - **Local GPU XGBoost** — automatic CUDA detection with graceful CPU fallback.
 - **Optuna tuning** — TPE search for hyperparameters and PPV-targeted objectives.
-- **Surveillance metrics** — Pearson RDI and LGDI with bootstrap confidence intervals.
+- **Surveillance metrics** — Pearson RDI and LGDI with two computation modes:
+  `LGDIComputer` (simple weekly unsigned MASE, fast fallback) and the publication-grade
+  `SlidingWindowLGDI` (4-week sliding window, dual signed MASE for `next_los_days` /
+  `next_gap_days`, COVID-positive exclusion; used automatically when XGBoost is available).
 - **Consensus alerting** — configurable `k`-of-`n`, sustained, and seasonally-gated rules.
 - **Reports** — CSV tables, HTML dashboards, FHIR R4 `MeasureReport` export.
 
@@ -80,6 +83,42 @@ print(result.summary())
 See [examples/](examples/) for COVID, Influenza, custom-disease, FHIR-ingestion, and GPU-tuning
 walkthroughs.
 
+## Key configuration options
+
+`EpidemicConfig` drives the entire pipeline. Every disease-specific parameter is exposed:
+
+| Field | Default | Description |
+|---|---|---|
+| `target_disease` | *(required)* | Label used in reports (e.g. `"COVID-19"`) |
+| `reference_icd10_codes` | *(required)* | ICD-10 codes defining the epidemic reference profile |
+| `baseline_start` / `baseline_end` | *(required)* | ISO-date window for baseline model training and MASE denominators |
+| `monitoring_start` | `None` → day after `baseline_end` | Start of the surveillance period |
+| `target_group` | `"Respiratory"` | Comorbidity group tracked as the epidemic signal |
+| `comorbidity_groups` | 6 built-in groups | Regex-keyed dict mapping group name → ICD-10 pattern |
+| `lab_panel` | 8 common labs | Lab columns used for Pearson RDI |
+| `alert_threshold_sd` | `1.5` | Z-score above baseline mean that triggers an alert |
+| `sustained_weeks` | `2` | Consecutive alert-positive weeks required for a sustained alert |
+| `lgdi_min_window_n` | `50` | Minimum admissions per 4-week `SlidingWindowLGDI` window (lower for small cohorts, e.g. `10`) |
+| `lgdi_min_group_n` | `10` | Minimum admissions per comorbidity group per window (e.g. `2` for testing) |
+| `enhanced_features` | `True` | Build expanded 140-feature set (EMA/rolling prior-admission stats) |
+
+Example — smaller cohort with relaxed window thresholds:
+
+```python
+config = EpidemicConfig(
+    target_disease="Influenza",
+    reference_icd10_codes=["J09", "J10", "J11"],
+    reference_years=[2016, 2017, 2018],
+    reference_months=[1, 2, 12],
+    baseline_start="2013-01-01",
+    baseline_end="2015-12-31",
+    monitoring_start="2016-01-01",
+    epidemic_season_months=[11, 12, 1, 2, 3],
+    lgdi_min_window_n=20,   # relax for cohorts < 5 k admissions
+    lgdi_min_group_n=4,
+)
+```
+
 ## Running tests
 
 ```bash
@@ -89,7 +128,7 @@ pip install -e ".[lgdi,dev]"
 pytest tests/ -v
 ```
 
-All 36 tests use only synthetic data — no real EHR files needed.
+All 44 tests use only synthetic data — no real EHR files needed.
 
 ## Aggregate-only multi-dataset validation
 
@@ -173,7 +212,7 @@ Privacy and isolation rules:
 - `ehr_sentinel` package modules do **not** import `NC_revision`; the validation script is an external runner.
 - README tables below are aggregate-only and contain no patient-level records.
 
-Latest local validation summary (v0.4 — adaptive lab panel differentiation, ≥ 20 % coverage threshold):
+Latest local validation summary (v0.5 — dual XGBoost + SlidingWindowLGDI, signed dual-MASE, adaptive lab panel differentiation, ≥ 20 % coverage threshold):
 
 | Dataset | Analysis | Rows tested | Patients | Disease records | Labs selected ⁴ | LGDI weeks | Peak S | Alert threshold S | Sustained alerts |
 |---|---|---:|---:|---:|---|---:|---:|---:|---:|
@@ -259,11 +298,14 @@ src/ehr_sentinel/
 ├── utils/          # EpidemicConfig (Pydantic v2), GPU detection, validation helpers
 ├── data/           # EHRLoader, synthetic generators, FHIR parser, terminology mapper
 ├── features/       # ComorbidityGrouper, adaptive lab/disease/feature planning, FeatureBuilder
-├── models/         # XGBTrainer, XGBTuner (Optuna), ModelPersistence
-├── metrics/        # PearsonProfileCorrelation (RDI), LGDIComputer, AlertEvaluator
-├── alerts/         # ConsensusRule, SeasonFilter, SustainedRule, EpidemicPredictor
+├── models/         # XGBTrainer (random_state=20260513), XGBTuner (Optuna), ModelPersistence
+├── metrics/        # PearsonProfileCorrelation (RDI), LGDIComputer (simple), SlidingWindowLGDI (4-week dual signed-MASE), AlertEvaluator
+├── alerts/         # ConsensusRule, SeasonFilter, SustainedRule, CUSUMRule, EWMARule, SeasonalAdjustedRule, MultiScaleRule, EpidemicPredictor
 ├── reporting/      # CSV tables, HTML dashboard, FHIR R4 MeasureReport export
 └── pipeline.py     # run_surveillance_pipeline() — one-call entry point
+                    #   • trains next_los_days + next_gap_days XGBoost models when available
+                    #   • uses SlidingWindowLGDI (publication-grade) when both models succeed
+                    #   • falls back to LGDIComputer (simple MASE) when XGBoost is absent
 ```
 
 ## Data policy — ZERO embedded data

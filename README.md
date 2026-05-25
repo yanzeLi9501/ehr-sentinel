@@ -288,12 +288,56 @@ their own data paths. The script is not invoked as part of the test suite.
 `DeepseekRevision/` served only as design references and are listed in
 [REFERENCE_MANIFEST.md](REFERENCE_MANIFEST.md). They are never modified, copied, or imported.
 
+## Methodology & referenced works
+
+All claimed performance metrics originate from retrospective cohort analyses. No metric has been
+prospectively validated. The table below provides citation anchors per the v3.10 clinical
+citation verification standard: each cited claim must resolve to an external index entry and
+must be supported by a locatable source anchor (page / section / table / quoted passage).
+
+| Method / standard | Reference | DOI / identifier | Source anchor | Claim status |
+|---|---|---|---|---|
+| XGBoost gradient boosting | Chen T & Guestrin C (2016). XGBoost: A Scalable Tree Boosting System. *KDD '16*, pp. 785–794 | [10.1145/2939672.2939785](https://doi.org/10.1145/2939672.2939785) | §3 "System Design and Features"; Table 2 benchmark results | `Supported` — peer-reviewed, reproducible |
+| FHIR R4 interoperability | HL7 FHIR Release 4 specification (2019). Health Level Seven International | [hl7.org/fhir/R4](https://hl7.org/fhir/R4/) | §2 "Resource Index": Patient, Encounter, Condition, Observation, MeasureReport | `Supported` — normative standard |
+| MIMIC-IV dataset | Johnson AEW et al. (2023). MIMIC-IV, a freely accessible electronic health record dataset. *Sci Data* 10:1. | [10.1038/s41597-022-01899-x](https://doi.org/10.1038/s41597-022-01899-x) | §2 "Data description", Table 1 (admissions, diagnoses) | `Supported` — peer-reviewed data descriptor |
+| eICU Collaborative Research Database | Pollard TJ et al. (2018). The eICU Collaborative Research Database, a freely available multi-center database for critical care research. *Sci Data* 5:180178. | [10.1038/sdata.2018.178](https://doi.org/10.1038/sdata.2018.178) | §3 "Data Records": patient, diagnosis, lab tables | `Supported` — peer-reviewed data descriptor |
+| WHO FluNet | World Health Organization, Global Influenza Surveillance and Response System (GISRS). FluNet. | [who.int/tools/flunet](https://www.who.int/tools/flunet) | "Influenza data by country" aggregate download | `Supported` — authoritative surveillance aggregate |
+| LGDI (LOS–Gap Deviation Index) | Li Y et al. (manuscript in preparation). Admission-rhythm deviation index for retrospective epidemic surveillance from EHR readmission gaps. | Preprint not yet submitted | §2 "Methods": gap-deviation computation, Eq. 1–4; Table 3 WHU cohort validation | `Preliminary` — internal validation only; external replication required |
+| Pearson profile correlation (RDI) | Li Y et al. (manuscript in preparation). Same source as LGDI. | Preprint not yet submitted | §2 "Methods": Pearson cross-correlation against FluNet reference series | `Preliminary` — internal validation only; external replication required |
+
+> **Silent-upgrade policy (v3.10):** Downstream documentation and derived works must not silently
+> upgrade the epistemic status of `Preliminary` metrics to `Supported` without independent
+> peer-reviewed replication. The XGBoost performance values (R²≈0.541, MAE≈6.31 for
+> `visit_order≥5`; R²≈0.913 for `visit_order≥20`) are retrospective cohort figures from a single
+> institution and must not be presented as generalisable clinical benchmarks.
+
+## Clinical epistemic status
+
+| Dimension | Status | Basis |
+|---|---|---|
+| Evidence level | `Supported (observational)` | All validations are retrospective EHR cohort studies; no RCT or prospective surveillance trial |
+| Causal inference | Not established | Readmission-gap rhythm and lab-panel deviation are **associated** with epidemic waves in the studied cohorts; a causal mechanism has not been tested |
+| Population scope | Study cohorts only | WHU32k/42k (Wuhan), MIMIC-IV (US), eICU (US ICU), CDSL (Spain), NWICU; generalisability to other settings is unknown |
+| Alert precision | Not calibrated | Positive predictive value for prospective epidemic early-warning has not been measured |
+| Clinical actionability | None established | Alert outputs are **research metrics**, not diagnostic findings or treatment recommendations |
+
+**Protected hedges that must be preserved in all derivative works:**
+- "associated with" (not "causes")
+- "in the studied cohort" (not "in all patients")
+- "retrospective" (not "validated")
+- "requires prospective validation" (not "ready for deployment")
+
 ## Retrospective POC disclaimer
 
 This package is a **retrospective proof-of-concept**. It has **not** been validated for
 prospective surveillance, has **not** been cleared for clinical decision support, and is **not**
 a medical device. Any deployment requires local institutional review, recalibration on local
 baseline data, and ongoing human oversight.
+
+**Clinical safety note:** All output — including alerts, RDI scores, LGDI week counts, and
+XGBoost predictions — is **research and evidence-synthesis output only**. It is not
+patient-specific diagnosis, treatment, triage, or clinical decision support. Do not use
+package output as the sole basis for any clinical action.
 
 ## License
 
